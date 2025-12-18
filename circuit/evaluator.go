@@ -12,91 +12,68 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/cockroachdb/errors"
 	"github.com/markkurossi/mpc/ot"
 	"github.com/markkurossi/mpc/p2p"
 )
 
 // Evaluator runs the evaluator on the P2P network.
-func Evaluator(conn *p2p.Conn, oti ot.OT, circ *Circuit, inputs *big.Int,
-	verbose bool) ([]*big.Int, error) {
-
-	timing := NewTiming()
-
-	garbled := make([][]ot.Label, circ.NumGates)
-
-	// Receive program info.
+func Evaluator(
+	conn *p2p.Conn,
+	oti *ot.CO,
+	circ *Circuit,
+	inputs *big.Int,
+	verbose bool,
+) (
+	[]*big.Int, error,
+) {
+	// E1. 接收临时密钥.
 	if verbose {
 		fmt.Printf(" - Waiting for circuit info...\n")
 	}
-	key, err := conn.ReceiveData()
-	if err != nil {
+	var key [32]byte
+	if err := conn.DirectRecv(&key, "ephemeral key"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Evaluator(...), when receiving ephemeral key.")
 		return nil, err
 	}
 
-	// Receive garbled tables.
-	timing.Sample("Wait", nil)
+	// E2. 接收 gates
 	if verbose {
 		fmt.Printf(" - Receiving garbled circuit...\n")
 	}
-	count, err := conn.ReceiveUint32()
-	if err != nil {
+	garbled := make([][]ot.Label, circ.NumGates)
+	if err := conn.DirectRecv(&garbled, "garbled gates"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Evaluator(...), when receiving garbled gates.")
 		return nil, err
 	}
-	if count != circ.NumGates {
-		return nil, fmt.Errorf("wrong number of gates: got %d, expected %d",
-			count, circ.NumGates)
-	}
-	var label ot.Label
-	var labelData ot.LabelData
-	for i := 0; i < circ.NumGates; i++ {
-		count, err := conn.ReceiveUint32()
-		if err != nil {
-			return nil, err
-		}
 
-		values := make([]ot.Label, count)
-		for j := 0; j < count; j++ {
-			err := conn.ReceiveLabel(&label, &labelData)
-			if err != nil {
-				return nil, err
-			}
-			values[j] = label
-		}
-		garbled[i] = values
-	}
-
-	wires := make([]ot.Label, circ.NumWires)
-
-	// Receive peer inputs.
-	for i := 0; i < int(circ.Inputs[0].Type.Bits); i++ {
-		err := conn.ReceiveLabel(&label, &labelData)
-		if err != nil {
-			return nil, err
-		}
-		wires[Wire(i)] = label
-	}
-
-	// Init oblivious transfer.
-	err = oti.InitReceiver(conn)
-	if err != nil {
+	// E3. 接收 inputs
+	var wires []ot.Label
+	if err := conn.DirectRecv(&wires, "inputs"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Evaluator(...), when receiving inputs.")
 		return nil, err
 	}
-	ioStats := conn.Stats.Sum()
-	timing.Sample("Recv", []string{FileSize(ioStats).String()})
+	padlen := circ.NumWires - len(wires)
+	wires = append(wires, make([]ot.Label, padlen)...)
 
-	// Query our inputs.
+	// E4. 发送 offset 和 count
 	if verbose {
 		fmt.Printf(" - Querying our inputs...\n")
 	}
-	// Wire offset.
-	if err := conn.SendUint32(int(circ.Inputs[0].Type.Bits)); err != nil {
-		return nil, err
+	type OtQuery struct {
+		Offset int
+		Count  int
 	}
-	// Wire count.
-	if err := conn.SendUint32(int(circ.Inputs[1].Type.Bits)); err != nil {
-		return nil, err
+	query := OtQuery{
+		Offset: int(circ.Inputs[0].Type.Bits),
+		Count:  int(circ.Inputs[1].Type.Bits),
 	}
-	if err := conn.Flush(); err != nil {
+	if err := conn.DirectSend(&query, "ot query"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Evaluator(...), when sending ot query.")
 		return nil, err
 	}
 	flags := make([]bool, int(circ.Inputs[1].Type.Bits))
@@ -107,51 +84,40 @@ func Evaluator(conn *p2p.Conn, oti ot.OT, circ *Circuit, inputs *big.Int,
 	}
 	start := int(circ.Inputs[0].Type.Bits)
 	end := start + int(circ.Inputs[1].Type.Bits)
-	if err := oti.Receive(flags, wires[start:end]); err != nil {
+
+	// E5. 执行 ot 接收. 位于 ot/co.go: func Receive
+	if err := oti.Receive(flags, wires[start:end], conn); err != nil {
 		return nil, err
 	}
-	xfer := conn.Stats.Sum() - ioStats
-	ioStats = conn.Stats.Sum()
-	timing.Sample("Inputs", []string{FileSize(xfer).String()})
 
 	// Evaluate gates.
 	if verbose {
 		fmt.Printf(" - Evaluating circuit...\n")
 	}
-	err = circ.Eval(key[:], wires, garbled)
-	if err != nil {
+	if err := circ.Eval(key[:], wires, garbled); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Evaluator(...), when evaluating gates.")
 		return nil, err
 	}
-	timing.Sample("Eval", nil)
 
-	// Resolve result values.
-
+	// E6. 发送结果 labels
 	var labels []ot.Label
-
 	for i := 0; i < circ.Outputs.Size(); i++ {
 		r := wires[Wire(circ.NumWires-circ.Outputs.Size()+i)]
 		labels = append(labels, r)
 	}
-	for _, l := range labels {
-		if err := conn.SendLabel(l, &labelData); err != nil {
-			return nil, err
-		}
-	}
-	if err := conn.Flush(); err != nil {
+	if err := conn.DirectSend(&labels, "result labels"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Evaluator(...), when sending ot labels.")
 		return nil, err
 	}
 
-	result, err := conn.ReceiveData()
-	if err != nil {
+	// E7. 接收结果.
+	var result big.Int
+	if err := conn.DirectRecv(&result, "result"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Evaluator(...), when receiving result.")
 		return nil, err
 	}
-	raw := big.NewInt(0).SetBytes(result)
-
-	xfer = conn.Stats.Sum() - ioStats
-	timing.Sample("Result", []string{FileSize(xfer).String()})
-	if verbose {
-		timing.Print(conn.Stats)
-	}
-
-	return circ.Outputs.Split(raw), nil
+	return circ.Outputs.Split(&result), nil
 }

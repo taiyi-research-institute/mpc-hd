@@ -10,7 +10,6 @@ package compiler
 import (
 	"fmt"
 	"io"
-	"math/big"
 	"os"
 	"path"
 	"runtime"
@@ -19,8 +18,6 @@ import (
 	"github.com/markkurossi/mpc/circuit"
 	"github.com/markkurossi/mpc/compiler/ast"
 	"github.com/markkurossi/mpc/compiler/utils"
-	"github.com/markkurossi/mpc/ot"
-	"github.com/markkurossi/mpc/p2p"
 )
 
 // IsFilename tests if the argument file is a potential MPCL source
@@ -103,78 +100,6 @@ func (c *Compiler) compile(source string, in io.Reader, inputSizes [][]int) (
 		return nil, nil, err
 	}
 	return circ, annotation, nil
-}
-
-// StreamFile compiles the input program and uses the streaming mode
-// to garble and stream the circuit to the evaluator node.
-func (c *Compiler) StreamFile(conn *p2p.Conn, oti ot.OT, file string,
-	input []string, inputSizes [][]int) (circuit.IO, []*big.Int, error) {
-
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer f.Close()
-	return c.Stream(conn, oti, file, f, input, inputSizes)
-}
-
-// Stream compiles the input in and uses the streaming mode to garble
-// and stream the circuit to the evaluator node.
-func (c *Compiler) Stream(conn *p2p.Conn, oti ot.OT, source string,
-	in io.Reader, inputFlag []string, inputSizes [][]int) (
-	circuit.IO, []*big.Int, error) {
-
-	timing := circuit.NewTiming()
-
-	logger := utils.NewLogger(os.Stdout)
-	pkg, err := c.parse(source, in, logger, ast.NewPackage("main", source, nil))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	ctx := ast.NewCodegen(logger, pkg, c.packages, c.params, inputSizes)
-
-	program, _, err := pkg.Compile(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	timing.Sample("Compile", nil)
-
-	if c.params.BenchmarkCompile {
-		fmt.Println("BenchmarkCompile")
-		return nil, nil, nil
-	}
-
-	if len(program.Inputs) != 2 {
-		return nil, nil,
-			fmt.Errorf("invalid program for 2-party computation: %d parties",
-				len(program.Inputs))
-	}
-	input, err := program.Inputs[0].Parse(inputFlag)
-	if err != nil {
-		main, err2 := pkg.Main()
-		if err2 != nil {
-			return nil, nil, err
-		}
-		return nil, nil, ctx.Errorf(main.Location(), "%s: %v", main.Name, err)
-	}
-
-	if c.params.Verbose {
-		fmt.Printf(" + In1: %s\n", program.Inputs[0])
-		fmt.Printf(" - In2: %s\n", program.Inputs[1])
-		fmt.Printf(" - Out: %s\n", program.Outputs)
-		fmt.Printf(" -  In: %s\n", inputFlag)
-	}
-
-	out, bits, err := program.Stream(conn, oti, c.params, input, timing)
-	if err != nil {
-		return nil, nil, err
-	}
-	if false {
-		program.StreamDebug()
-	}
-	return out, bits, err
 }
 
 func (c *Compiler) parse(source string, in io.Reader, logger *utils.Logger,

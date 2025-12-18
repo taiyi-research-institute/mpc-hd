@@ -1,0 +1,37 @@
+package main
+
+import (
+	"crypto/hmac"
+	"encoding/binary"
+)
+
+const (
+	N uint256 = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
+)
+
+type Garbler struct {
+	wi uint256
+	cc [32]byte
+	idx uint32
+}
+
+type Evaluator struct {
+	wi uint256
+}
+
+func scalar_add(a, b uint) []byte {
+	sk := uint256( (uint257(a)+uint257(b)) % uint257(N) )
+	sk_bytes := binary.PutUint(make([]byte, 32), 0, sk)
+	return sk_bytes
+}
+
+func main(g Garbler, e Evaluator) []byte {
+	par_sk := scalar_add(g.wi, e.wi)
+
+	data := make([]byte, 37)
+	idx := g.idx + 0x80000000
+	copy(data[1:33], par_sk)
+	data = binary.PutUint32(data, 33, idx)
+
+	return hmac.SumSHA512(data, g.cc[:])
+}

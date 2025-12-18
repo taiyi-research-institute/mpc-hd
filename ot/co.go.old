@@ -45,11 +45,13 @@ package ot
 import (
 	"crypto/elliptic"
 	"crypto/rand"
+	"fmt"
 	"io"
 	"math/big"
+)
 
-	"github.com/cockroachdb/errors"
-	"github.com/markkurossi/mpc/p2p"
+var (
+	_ OT = &CO{}
 )
 
 // COSender implements CO OT sender.
@@ -233,81 +235,127 @@ func NewCO(rand io.Reader) *CO {
 	}
 }
 
+// InitSender initializes the OT sender.
+func (co *CO) InitSender(io IO) error {
+	co.io = io
+
+	if err := SendString(io, co.curve.Params().Name); err != nil {
+		return err
+	}
+	return io.Flush()
+}
+
+// InitReceiver initializes the OT receiver.
+func (co *CO) InitReceiver(io IO) error {
+	co.io = io
+
+	name, err := ReceiveString(io)
+	if err != nil {
+		return err
+	}
+	if name != co.curve.Params().Name {
+		return fmt.Errorf("invalid curve %s, expected %s",
+			name, co.curve.Params().Name)
+	}
+	return nil
+}
+
 // Send sends the wire labels with OT.
-func (co *CO) Send(wires []Wire, conn *p2p.Conn) error {
+func (co *CO) Send(wires []Wire) error {
 	setup, err := GenerateCOSenderSetup(co.rand, co.curve)
 	if err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Send(...), when generating sender setup.")
+		return err
+	}
+	if err := co.io.SendData(setup.Ax.Bytes()); err != nil {
+		return err
+	}
+	if err := co.io.SendData(setup.Ay.Bytes()); err != nil {
+		return err
+	}
+	if err := co.io.Flush(); err != nil {
 		return err
 	}
 
-	snd := &ECPoint{X: setup.Ax, Y: setup.Ay}
-	if err := conn.DirectSend(snd, "setup.Ax,Ay"); err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Send(...), when sending setup.Ax,Ay")
-		return err
-	}
-
-	var points []ECPoint
-	if err := conn.DirectRecv(&points, "co choices"); err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Send(...), when receiving co choices")
-		return err
+	points := make([]ECPoint, len(wires))
+	for i := 0; i < len(wires); i++ {
+		xData, err := co.io.ReceiveData()
+		if err != nil {
+			return err
+		}
+		xBytes := append([]byte(nil), xData...)
+		yData, err := co.io.ReceiveData()
+		if err != nil {
+			return err
+		}
+		yBytes := append([]byte(nil), yData...)
+		points[i] = ECPoint{
+			X: new(big.Int).SetBytes(xBytes),
+			Y: new(big.Int).SetBytes(yBytes),
+		}
 	}
 
 	ct, err := EncryptCOCiphertexts(co.curve, setup, points, wires)
 	if err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Send(...), when making ot ciphertexts")
 		return err
 	}
-	if err := conn.DirectSend(&ct, "ot ciphertexts"); err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Send(...), when receiving ot ciphertext")
-		return err
+	for i := range ct {
+		if err := co.io.SendData(ct[i].Zero[:]); err != nil {
+			return err
+		}
+		if err := co.io.SendData(ct[i].One[:]); err != nil {
+			return err
+		}
 	}
-
-	return nil
+	return co.io.Flush()
 }
 
 // Receive receives the wire labels with OT based on the flag values.
-func (co *CO) Receive(flags []bool, result []Label, conn *p2p.Conn) error {
-	rcv := &ECPoint{}
-	if err := conn.DirectRecv(rcv, "setup.Ax,Ay"); err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Receive(...), when receiving setup.Ax,Ay")
-		return err
-	}
-
-	bundle, points, err := BuildCOChoices(co.rand, co.curve, rcv.X, rcv.Y, flags)
+func (co *CO) Receive(flags []bool, result []Label) error {
+	Ax, err := ReceiveBigInt(co.io)
 	if err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Receive(...), when building co choices")
 		return err
 	}
-	if err := conn.DirectSend(points, "co choices"); err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Receive(...), when sending co choices")
+	Ay, err := ReceiveBigInt(co.io)
+	if err != nil {
 		return err
 	}
 
-	var ciphertexts []LabelCiphertext
-	if err := conn.DirectRecv(&ciphertexts, "ot ciphertexts"); err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Receive(...), when receiving ot ciphertexts")
+	bundle, points, err := BuildCOChoices(co.rand, co.curve, Ax, Ay, flags)
+	if err != nil {
 		return err
+	}
+	for i := range points {
+		if err := co.io.SendData(points[i].X.Bytes()); err != nil {
+			return err
+		}
+		if err := co.io.SendData(points[i].Y.Bytes()); err != nil {
+			return err
+		}
+	}
+	if err := co.io.Flush(); err != nil {
+		return err
+	}
+
+	ciphertexts := make([]LabelCiphertext, len(flags))
+	for i := range ciphertexts {
+		zero, err := co.io.ReceiveData()
+		if err != nil {
+			return err
+		}
+		copy(ciphertexts[i].Zero[:], zero)
+		one, err := co.io.ReceiveData()
+		if err != nil {
+			return err
+		}
+		copy(ciphertexts[i].One[:], one)
 	}
 
 	labels, err := DecryptCOCiphertexts(co.curve, bundle, ciphertexts)
 	if err != nil {
-		err = errors.Wrap(err,
-			"in func (co *CO) Receive(...), when decrypting ot ciphertexts")
 		return err
 	}
 	if len(labels) != len(result) {
-		err := errors.Newf("label count mismatch: got %d want %d", len(labels), len(result))
-		return err
+		return fmt.Errorf("label count mismatch: got %d want %d", len(labels), len(result))
 	}
 	copy(result, labels)
 	return nil
