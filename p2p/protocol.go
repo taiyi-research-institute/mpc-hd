@@ -9,8 +9,9 @@
 package p2p
 
 import (
-	"io"
 	"sync/atomic"
+
+	mgr "github.com/taiyi-research-institute/svarog-messenger/messenger"
 
 	"github.com/markkurossi/mpc/ot"
 )
@@ -27,17 +28,11 @@ const (
 
 // Conn implements a protocol connection.
 type Conn struct {
-	conn      io.ReadWriter
-	WriteBuf  []byte
-	WritePos  int
-	ReadBuf   []byte
-	ReadStart int
-	ReadEnd   int
-	Stats     IOStats
+	conn  *mgr.MessengerClient
+	Stats IOStats
 
-	fromWriter chan []byte
-	toWriter   chan []byte
-	writerErr  error
+	nread  uint64
+	nwrite uint64
 }
 
 // IOStats implements I/O statistics.
@@ -87,107 +82,43 @@ func (stats IOStats) Sum() uint64 {
 }
 
 // NewConn creates a new connection around the argument connection.
-func NewConn(conn io.ReadWriter) *Conn {
+func NewConn(conn *mgr.MessengerClient) *Conn {
 	c := &Conn{
-		conn:       conn,
-		ReadBuf:    make([]byte, readBufSize),
-		fromWriter: make(chan []byte, numBuffers),
-		toWriter:   make(chan []byte, numBuffers),
-		Stats:      NewIOStats(),
+		conn:   conn,
+		Stats:  NewIOStats(),
+		nread:  0,
+		nwrite: 0,
 	}
-
-	go c.writer()
-
-	c.WriteBuf = <-c.fromWriter
 
 	return c
 }
 
-func (c *Conn) writer() {
-	for i := 0; i < numBuffers; i++ {
-		c.fromWriter <- make([]byte, writeBufSize)
-	}
-
-	for buf := range c.toWriter {
-		_, err := c.conn.Write(buf)
-		if err != nil {
-			c.writerErr = err
-		}
-		c.fromWriter <- buf[0:cap(buf)]
-	}
-	close(c.fromWriter)
-}
-
 // NeedSpace ensures the write buffer has space for count bytes. The
 // function flushes the output if needed.
+// 一处使用: stream_garble.go
 func (c *Conn) NeedSpace(count int) error {
-	if c.WritePos+count > len(c.WriteBuf) {
-		return c.Flush()
-	}
 	return nil
 }
 
 // Flush flushed any pending data in the connection.
 func (c *Conn) Flush() error {
-	if c.WritePos > 0 {
-		c.Stats.Sent.Add(uint64(c.WritePos))
-		c.toWriter <- c.WriteBuf[0:c.WritePos]
-
-		next := <-c.fromWriter
-		if c.writerErr != nil {
-			return c.writerErr
-		}
-
-		c.WriteBuf = next
-		c.WritePos = 0
-		c.Stats.Flushed.Add(1)
-	}
 	return nil
 }
 
 // Fill fills the input buffer from the connection. Any unused data in
 // the buffer is moved to the beginning of the buffer.
 func (c *Conn) Fill(n int) error {
-	if c.ReadStart < c.ReadEnd {
-		copy(c.ReadBuf[0:], c.ReadBuf[c.ReadStart:c.ReadEnd])
-		c.ReadEnd -= c.ReadStart
-		c.ReadStart = 0
-	} else {
-		c.ReadStart = 0
-		c.ReadEnd = 0
-	}
-	for c.ReadStart+n > c.ReadEnd {
-		got, err := c.conn.Read(c.ReadBuf[c.ReadEnd:])
-		if err != nil {
-			return err
-		}
-		c.Stats.Recvd.Add(uint64(got))
-		c.ReadEnd += got
-	}
 	return nil
 }
 
 // Close flushes any pending data and closes the connection.
+// 多处使用.
 func (c *Conn) Close() error {
-	if err := c.Flush(); err != nil {
-		return err
-	}
-	// Wait that flush completes.
-	close(c.toWriter)
-	for buf := range c.fromWriter {
-		_ = buf
-	}
-	if c.writerErr != nil {
-		return c.writerErr
-	}
-	closer, ok := c.conn.(io.Closer)
-	if ok {
-		return closer.Close()
-	}
 	return nil
 }
 
 // SendByte sends a byte value.
+// 多处使用.
 func (c *Conn) SendByte(val byte) error {
 	if c.WritePos+1 > len(c.WriteBuf) {
 		if err := c.Flush(); err != nil {
