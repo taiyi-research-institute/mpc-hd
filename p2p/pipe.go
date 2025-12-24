@@ -8,18 +8,26 @@ package p2p
 
 import (
 	"io"
+
+	"github.com/cockroachdb/errors"
 )
 
 // Pipe implements the Conn interface as a bidirectional communication
 // pipe. Anything send to the first endpoint can be received from the
 // second and vice versa.
-func Pipe() (*Conn, *Conn) {
-	var p0, p1 pipe
-
-	p0.r, p1.w = io.Pipe()
-	p1.r, p0.w = io.Pipe()
-
-	return NewConn(&p0), NewConn(&p1)
+func Pipe() (*Conn, *Conn, error) {
+	host, port := "127.0.0.1", uint16(65534)
+	c1, err := NewConn(host, port, "")
+	if err != nil {
+		err = errors.Wrap(err, "Pipe().c1")
+		return nil, nil, err
+	}
+	c2, err := NewConn(host, port, c1.SessionId())
+	if err != nil {
+		err = errors.Wrap(err, "Pipe().c2")
+		return nil, nil, err
+	}
+	return c1, c2, nil
 }
 
 type pipe struct {

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/markkurossi/mpc/ot"
 )
 
@@ -288,7 +289,7 @@ func (peer *Peer) otLambdaQuery(count int, choices *big.Int) (
 			return nil, err
 		}
 		if len(n) != 1 {
-			return nil, fmt.Errorf("invalid OT result of length %d", len(n))
+			return nil, errors.Newf("invalid OT result of length %d", len(n))
 		}
 		if n[0] != 0 {
 			result.SetBit(result, i, 1)
@@ -303,7 +304,7 @@ func (peer *Peer) otLambdaRespond(count int, x1, x2 *big.Int) error {
 		return err
 	}
 	if pc != count {
-		return fmt.Errorf("protocol error: peer count %d, our %d", pc, count)
+		return errors.Newf("protocol error: peer count %d, our %d", pc, count)
 	}
 	for i := 0; i < count; i++ {
 		bit, err := peer.conn.ReceiveUint32()
@@ -456,7 +457,7 @@ func (peer *Peer) otrRespond(x1, x2 []ot.Label) error {
 		return err
 	}
 	if pc != len(x1) {
-		return fmt.Errorf("protocol error: peer count %d, our %d", pc, len(x1))
+		return errors.Newf("protocol error: peer count %d, our %d", pc, len(x1))
 	}
 
 	for i := 0; i < len(x1); i++ {

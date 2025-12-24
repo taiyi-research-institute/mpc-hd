@@ -29,7 +29,8 @@ import (
 )
 
 var (
-	port    = ":8080"
+	host    = "127.0.0.1"
+	port    = uint16(65534)
 	verbose = false
 	base    = 0
 )
@@ -71,7 +72,6 @@ func init() {
 
 func main() {
 	evaluator := flag.Bool("e", false, "evaluator / garbler mode")
-	stream := flag.Bool("stream", false, "streaming mode")
 	compile := flag.Bool("circ", false, "compile MPCL to circuit")
 	circFormat := flag.String("format", "mpclc",
 		"circuit format: mpclc, bristol")
@@ -190,20 +190,6 @@ func main() {
 
 	oti := ot.NewCO(params.Config.GetRandom())
 
-	if *stream {
-		if *evaluator {
-			err = streamEvaluatorMode(oti, inputFlag,
-				len(*cpuprofile) > 0 || len(*memprofile) > 0)
-		} else {
-			err = streamGarblerMode(params, oti, inputFlag, flag.Args())
-		}
-		memProfile(*memprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-
 	if len(flag.Args()) != 1 {
 		log.Fatalf("expected one input file, got %v\n", len(flag.Args()))
 	}
@@ -274,8 +260,12 @@ func memProfile(file string) {
 	}
 }
 
-func evaluatorMode(oti ot.OT, file string, params *utils.Params,
-	once bool) error {
+func evaluatorMode(
+	oti ot.OT,
+	file string,
+	params *utils.Params,
+	once bool,
+) error {
 
 	inputSizes := make([][]int, 2)
 	myInputSizes, err := circuit.InputSizes(inputFlag)
@@ -284,69 +274,58 @@ func evaluatorMode(oti ot.OT, file string, params *utils.Params,
 	}
 	inputSizes[1] = myInputSizes
 
-	ln, err := net.Listen("tcp", port)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Listening for connections at %s\n", port)
-
 	var oPeerInputSizes []int
 	var circ *circuit.Circuit
 
-	for {
-		nc, err := ln.Accept()
-		if err != nil {
-			return err
-		}
-		fmt.Printf("New connection from %s\n", nc.RemoteAddr())
+	conn, err := p2p.NewConn(host, port, "")
+	if err != nil {
+		return err
+	}
 
-		conn := p2p.NewConn(nc)
-
-		err = conn.SendInputSizes(myInputSizes)
-		if err != nil {
-			conn.Close()
-			return err
-		}
-		err = conn.Flush()
-		if err != nil {
-			conn.Close()
-			return err
-		}
-		peerInputSizes, err := conn.ReceiveInputSizes()
-		if err != nil {
-			conn.Close()
-			return err
-		}
-		inputSizes[0] = peerInputSizes
-
-		if circ == nil || slices.Compare(peerInputSizes, oPeerInputSizes) != 0 {
-			circ, err = loadCircuit(file, params, inputSizes)
-			if err != nil {
-				conn.Close()
-				return err
-			}
-			oPeerInputSizes = peerInputSizes
-		}
-		circ.PrintInputs(circuit.IDEvaluator, inputFlag)
-		if len(circ.Inputs) != 2 {
-			return fmt.Errorf("invalid circuit for 2-party MPC: %d parties",
-				len(circ.Inputs))
-		}
-
-		input, err := circ.Inputs[1].Parse(inputFlag)
-		if err != nil {
-			conn.Close()
-			return fmt.Errorf("%s: %v", file, err)
-		}
-		result, err := circuit.Evaluator(conn, oti, circ, input, verbose)
+	err = conn.SendInputSizes(myInputSizes)
+	if err != nil {
 		conn.Close()
-		if err != nil && err != io.EOF {
+		return err
+	}
+	err = conn.Flush()
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	peerInputSizes, err := conn.ReceiveInputSizes()
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	inputSizes[0] = peerInputSizes
+
+	if circ == nil || slices.Compare(peerInputSizes, oPeerInputSizes) != 0 {
+		circ, err = loadCircuit(file, params, inputSizes)
+		if err != nil {
+			conn.Close()
 			return err
 		}
-		mpc.PrintResults(result, circ.Outputs, base)
-		if once {
-			return nil
-		}
+		oPeerInputSizes = peerInputSizes
+	}
+	circ.PrintInputs(circuit.IDEvaluator, inputFlag)
+	if len(circ.Inputs) != 2 {
+		return fmt.Errorf("invalid circuit for 2-party MPC: %d parties",
+			len(circ.Inputs))
+	}
+
+	input, err := circ.Inputs[1].Parse(inputFlag)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("%s: %v", file, err)
+	}
+	result, err := circuit.Evaluator(conn, oti, circ, input, verbose)
+	conn.Close()
+	if err != nil && err != io.EOF {
+		return err
+	}
+	mpc.PrintResults(result, circ.Outputs, base)
+	if once {
+		return nil
 	}
 }
 
@@ -362,7 +341,7 @@ func garblerMode(oti ot.OT, file string, params *utils.Params) error {
 	if err != nil {
 		return err
 	}
-	conn := p2p.NewConn(nc)
+	conn, err := p2p.NewConn(nc)
 	defer conn.Close()
 
 	peerInputSizes, err := conn.ReceiveInputSizes()

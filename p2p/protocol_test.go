@@ -69,7 +69,10 @@ func writer(c *Conn) {
 }
 
 func TestProtocol(t *testing.T) {
-	cw, c := Pipe()
+	cw, c, err := Pipe()
+	if err != nil {
+		t.Error(err)
+	}
 
 	go writer(cw)
 
