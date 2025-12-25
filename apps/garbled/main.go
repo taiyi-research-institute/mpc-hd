@@ -13,13 +13,13 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"os"
 	"runtime"
 	"runtime/pprof"
 	"slices"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/markkurossi/mpc"
 	"github.com/markkurossi/mpc/circuit"
 	"github.com/markkurossi/mpc/compiler"
@@ -85,7 +85,6 @@ func main() {
 	cpuprofile := flag.String("cpuprofile", "", "write cpu profile to `file`")
 	memprofile := flag.String("memprofile", "",
 		"write memory profile to `file`")
-	bmr := flag.Int("bmr", -1, "semi-honest secure BMR protocol player number")
 	mpclcErrLoc := flag.Bool("mpclc-err-loc", false,
 		"print MPCLC error locations")
 	benchmarkCompile := flag.Bool("benchmark-compile", false,
@@ -195,14 +194,6 @@ func main() {
 	}
 	file := flag.Args()[0]
 
-	if *bmr >= 0 {
-		err = bmrMode(file, params, *bmr)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-
 	if *evaluator {
 		err = evaluatorMode(oti, file, params, len(*cpuprofile) > 0)
 	} else {
@@ -277,7 +268,7 @@ func evaluatorMode(
 	var oPeerInputSizes []int
 	var circ *circuit.Circuit
 
-	conn, err := p2p.NewConn(host, port, "")
+	conn, err := p2p.NewConn(false, host, port, "114514")
 	if err != nil {
 		return err
 	}
@@ -327,6 +318,7 @@ func evaluatorMode(
 	if once {
 		return nil
 	}
+	return err
 }
 
 func garblerMode(oti ot.OT, file string, params *utils.Params) error {
@@ -337,11 +329,10 @@ func garblerMode(oti ot.OT, file string, params *utils.Params) error {
 	}
 	inputSizes[0] = myInputSizes
 
-	nc, err := net.Dial("tcp", port)
+	conn, err := p2p.NewConn(true, host, port, "114514")
 	if err != nil {
-		return err
+		return errors.Wrap(err, "in garblerMode()")
 	}
-	conn, err := p2p.NewConn(nc)
 	defer conn.Close()
 
 	peerInputSizes, err := conn.ReceiveInputSizes()

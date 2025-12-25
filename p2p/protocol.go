@@ -21,16 +21,12 @@ var (
 	_ ot.IO = &Conn{}
 )
 
-const (
-	numBuffers   = 3
-	writeBufSize = 64 * 1024
-	readBufSize  = 1024 * 1024
-)
-
 // Conn implements a protocol connection.
 type Conn struct {
 	conn  *mgr.MessengerClient
 	Stats IOStats
+	je    int
+	tu    int
 
 	nsend int
 	nrecv int
@@ -87,7 +83,7 @@ func (stats IOStats) Sum() uint64 {
 }
 
 // NewConn creates a new connection around the argument connection.
-func NewConn(host string, port uint16, sid string) (*Conn, error) {
+func NewConn(isGarbler bool, host string, port uint16, sid string) (*Conn, error) {
 	conn := new(mgr.MessengerClient)
 	conn, err := conn.Connect(host, port)
 	if err != nil {
@@ -97,7 +93,7 @@ func NewConn(host string, port uint16, sid string) (*Conn, error) {
 	if sid == "" {
 		sid, err = conn.GrpcNewSessionEasy()
 	} else {
-		_, err = conn.GrpcGetSessionConfig(sid)
+		conn.SessionId = sid
 	}
 	if err != nil {
 		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to set session_id %s w.r.t. grpc server %s:%d", sid, host, port)
@@ -109,6 +105,11 @@ func NewConn(host string, port uint16, sid string) (*Conn, error) {
 		Stats: NewIOStats(),
 		nsend: 0,
 		nrecv: 0,
+	}
+	if isGarbler {
+		c.je, c.tu = 1, 2
+	} else {
+		c.je, c.tu = 2, 1
 	}
 
 	return c, nil
@@ -142,7 +143,8 @@ func (c *Conn) Close() error {
 func (c *Conn) SendByte(val byte) error {
 	conn := c.conn
 	c.nsend += 1
-	if err := conn.TwoPartySend(val, conn.SessionId, c.nsend); err != nil {
+	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	if err != nil {
 		return errors.Wrapf(err, "SendByte")
 	}
 	return nil
@@ -152,7 +154,8 @@ func (c *Conn) SendByte(val byte) error {
 func (c *Conn) SendUint16(val int) error {
 	conn := c.conn
 	c.nsend += 1
-	if err := conn.TwoPartySend(val, conn.SessionId, c.nsend); err != nil {
+	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	if err != nil {
 		return errors.Wrapf(err, "SendUint16")
 	}
 	return nil
@@ -162,7 +165,8 @@ func (c *Conn) SendUint16(val int) error {
 func (c *Conn) SendUint32(val int) error {
 	conn := c.conn
 	c.nsend += 1
-	if err := conn.TwoPartySend(val, conn.SessionId, c.nsend); err != nil {
+	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	if err != nil {
 		return errors.Wrapf(err, "SendUint32")
 	}
 	return nil
@@ -172,7 +176,8 @@ func (c *Conn) SendUint32(val int) error {
 func (c *Conn) SendData(val []byte) error {
 	conn := c.conn
 	c.nsend += 1
-	if err := conn.TwoPartySend(val, conn.SessionId, c.nsend); err != nil {
+	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	if err != nil {
 		return errors.Wrapf(err, "SendData")
 	}
 	return nil
@@ -184,7 +189,8 @@ func (c *Conn) SendLabel(val ot.Label, data *ot.LabelData) error {
 
 	conn := c.conn
 	c.nsend += 1
-	if err := conn.TwoPartySend(val, conn.SessionId, c.nsend); err != nil {
+	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	if err != nil {
 		return errors.Wrapf(err, "SendData")
 	}
 	return nil
@@ -194,17 +200,19 @@ func (c *Conn) SendLabel(val ot.Label, data *ot.LabelData) error {
 func (c *Conn) SendString(val string) error {
 	conn := c.conn
 	c.nsend += 1
-	if err := conn.TwoPartySend(val, conn.SessionId, c.nsend); err != nil {
+	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	if err != nil {
 		return errors.Wrapf(err, "SendString")
 	}
 	return nil
 }
 
 // SendInputSizes sends the input sizes.
-func (c *Conn) SendInputSizes(sizes []int) error {
+func (c *Conn) SendInputSizes(val []int) error {
 	conn := c.conn
 	c.nsend += 1
-	if err := conn.TwoPartySend(sizes, conn.SessionId, c.nsend); err != nil {
+	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	if err != nil {
 		return errors.Wrapf(err, "SendString")
 	}
 	return nil
@@ -215,7 +223,8 @@ func (c *Conn) ReceiveByte() (byte, error) {
 	conn := c.conn
 	c.nrecv += 1
 	var recv byte
-	if err := conn.TwoPartyRecv(&recv, conn.SessionId, c.nrecv); err != nil {
+	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	if err != nil {
 		return recv, errors.Wrapf(err, "ReceiveByte")
 	}
 	return recv, nil
@@ -226,7 +235,8 @@ func (c *Conn) ReceiveUint16() (int, error) {
 	conn := c.conn
 	c.nrecv += 1
 	var recv int
-	if err := conn.TwoPartyRecv(&recv, conn.SessionId, c.nrecv); err != nil {
+	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	if err != nil {
 		return recv, errors.Wrapf(err, "ReceiveUint16")
 	}
 	return recv, nil
@@ -237,7 +247,8 @@ func (c *Conn) ReceiveUint32() (int, error) {
 	conn := c.conn
 	c.nrecv += 1
 	var recv int
-	if err := conn.TwoPartyRecv(&recv, conn.SessionId, c.nrecv); err != nil {
+	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	if err != nil {
 		return recv, errors.Wrapf(err, "ReceiveUint32")
 	}
 	return recv, nil
@@ -248,7 +259,8 @@ func (c *Conn) ReceiveData() ([]byte, error) {
 	conn := c.conn
 	c.nrecv += 1
 	var recv []byte
-	if err := conn.TwoPartyRecv(&recv, conn.SessionId, c.nrecv); err != nil {
+	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	if err != nil {
 		return recv, errors.Wrapf(err, "ReceiveData")
 	}
 	return recv, nil
@@ -258,7 +270,8 @@ func (c *Conn) ReceiveData() ([]byte, error) {
 func (c *Conn) ReceiveLabel(recv *ot.Label, data *ot.LabelData) error {
 	conn := c.conn
 	c.nrecv += 1
-	if err := conn.TwoPartyRecv(recv, conn.SessionId, c.nrecv); err != nil {
+	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	if err != nil {
 		return errors.Wrapf(err, "ReceiveLabel")
 	}
 	recv.GetData(data)
@@ -270,7 +283,8 @@ func (c *Conn) ReceiveString() (string, error) {
 	conn := c.conn
 	c.nrecv += 1
 	var recv string
-	if err := conn.TwoPartyRecv(&recv, conn.SessionId, c.nrecv); err != nil {
+	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	if err != nil {
 		return recv, errors.Wrapf(err, "ReceiveString")
 	}
 	return recv, nil
@@ -281,7 +295,8 @@ func (c *Conn) ReceiveInputSizes() ([]int, error) {
 	conn := c.conn
 	c.nrecv += 1
 	var recv []int
-	if err := conn.TwoPartyRecv(&recv, conn.SessionId, c.nrecv); err != nil {
+	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	if err != nil {
 		return recv, errors.Wrapf(err, "ReceiveInputSizes")
 	}
 	return recv, nil

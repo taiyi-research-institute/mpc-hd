@@ -10,11 +10,9 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/cockroachdb/errors"
 	"github.com/markkurossi/mpc/ot"
@@ -30,64 +28,9 @@ type Network struct {
 	listener net.Listener
 }
 
-// NewNetwork creats a new peer-to-peer network.
-func NewNetwork(rand io.Reader, addr string, id int) (*Network, error) {
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	nw := &Network{
-		rand:     rand,
-		ID:       id,
-		Peers:    make(map[int]*Peer),
-		addr:     addr,
-		listener: listener,
-	}
-	go nw.acceptLoop()
-	return nw, nil
-}
-
 // Close closes the network.
 func (nw *Network) Close() error {
 	return nw.listener.Close()
-}
-
-// AddPeer adds a peer to the network.
-func (nw *Network) AddPeer(addr string, id int) error {
-	// Try to connect to peer.
-	for {
-		// Check if we have already accepted peer `id`.
-		nw.m.Lock()
-		_, ok := nw.Peers[id]
-		nw.m.Unlock()
-		if ok {
-			return nil
-		}
-
-		log.Printf("NW %d: Connecting to peer %d...\n", nw.ID, id)
-		nc, err := net.Dial("tcp", addr)
-		if err != nil {
-			delay := 5 * time.Second
-			log.Printf("NW %d: Connect to %s failed, retrying in %s\n",
-				nw.ID, addr, delay)
-			<-time.After(delay)
-			continue
-		}
-		log.Printf("NW %d: Connected to %s\n", nw.ID, addr)
-		conn := NewConn(nc)
-
-		if err := conn.SendUint32(nw.ID); err != nil {
-			conn.Close()
-			return err
-		}
-		if err := conn.Flush(); err != nil {
-			conn.Close()
-			return err
-		}
-		if err := nw.newPeer(true, conn, id); err != nil {
-			fmt.Printf("Failed to add peer: %s\n", err)
-		}
-	}
 }
 
 // Ping sends a ping message to all peers.
@@ -104,50 +47,6 @@ func (nw *Network) Stats() IOStats {
 		result = result.Add(peer.conn.Stats)
 	}
 	return result
-}
-
-func (nw *Network) acceptLoop() {
-	for {
-		nc, err := nw.listener.Accept()
-		if err != nil {
-			log.Printf("NW %d: accept failed: %s\n", nw.ID, err)
-			return
-		}
-		conn := NewConn(nc)
-
-		// Read peer ID.
-		id, err := conn.ReceiveUint32()
-		if err != nil {
-			log.Printf("NW %d: I/O error: %s\n", nw.ID, err)
-			conn.Close()
-			continue
-		}
-
-		err = nw.newPeer(false, conn, id)
-		if err != nil {
-			log.Printf("inbound connection error: %s\n", err)
-		}
-	}
-}
-
-func (nw *Network) newPeer(client bool, conn *Conn, id int) error {
-	nw.m.Lock()
-	_, ok := nw.Peers[id]
-	if ok {
-		nw.m.Unlock()
-		log.Printf("NW %d: peer %d already connected\n", nw.ID, id)
-		return conn.Close()
-	}
-	peer := &Peer{
-		rand:   nw.rand,
-		id:     id,
-		conn:   conn,
-		client: client,
-	}
-	nw.Peers[id] = peer
-	nw.m.Unlock()
-
-	return peer.init()
 }
 
 // Peer implements a peer in the peer-to-peer network.

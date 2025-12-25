@@ -100,6 +100,9 @@ func Garbler(cfg *env.Config, conn *p2p.Conn, oti ot.OT, circ *Circuit,
 			return nil, err
 		}
 	}
+
+	// TODO: 把以上send改写为register send + exchange
+
 	ioStats := conn.Stats.Sum()
 	timing.Sample("Xfer", []string{FileSize(ioStats).String()})
 	if verbose {

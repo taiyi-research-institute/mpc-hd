@@ -76,6 +76,8 @@ func Evaluator(conn *p2p.Conn, oti ot.OT, circ *Circuit, inputs *big.Int,
 		wires[Wire(i)] = label
 	}
 
+	// TODO: 把以上recv改写为register recv + exchange
+
 	// Init oblivious transfer.
 	err = oti.InitReceiver(conn)
 	if err != nil {
