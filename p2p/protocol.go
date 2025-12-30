@@ -138,219 +138,259 @@ func (c *Conn) Close() error {
 	return c.conn.Close()
 }
 
-// SendByte sends a byte value.
-// 多处使用.
-func (c *Conn) SendByte(val byte) error {
+func (c *Conn) RegisterSend(snd any) {
 	conn := c.conn
 	c.nsend += 1
-	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
-	if err != nil {
-		return errors.Wrapf(err, "SendByte")
+	conn.RegisterSend(snd, conn.SessionId, "", c.je, c.tu, c.nsend)
+}
+
+func (c *Conn) RegisterRecv(rcv any) {
+	conn := c.conn
+	c.nrecv += 1
+	conn.RegisterRecv(rcv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+}
+
+func (c *Conn) Exchange() error {
+	conn := c.conn
+	if err := conn.Exchange(120, 240); err != nil {
+		err = errors.Wrap(err, "in mpc_hd::Conn::Exchange(&self)")
 	}
 	return nil
 }
 
-// SendUint16 sends an uint16 value.
-func (c *Conn) SendUint16(val int) error {
+func (c *Conn) DirectSend(snd any, topic string) error {
 	conn := c.conn
 	c.nsend += 1
-	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	err := conn.DirectSend(snd, conn.SessionId, topic, c.je, c.tu, c.nsend)
 	if err != nil {
-		return errors.Wrapf(err, "SendUint16")
+		return errors.Wrapf(err, "in mpc_hd::Conn::DirectSend(&self, any)")
 	}
 	return nil
 }
 
-// SendUint32 sends an uint32 value.
-func (c *Conn) SendUint32(val int) error {
+func (c *Conn) DirectRecv(rcv any, topic string) error {
 	conn := c.conn
 	c.nsend += 1
-	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+	err := conn.DirectRecv(rcv, conn.SessionId, topic, c.tu, c.je, c.nrecv)
 	if err != nil {
-		return errors.Wrapf(err, "SendUint32")
+		return errors.Wrapf(err, "in mpc_hd::Conn::DirectRecv(&self, any)")
 	}
 	return nil
 }
 
-// SendData sends binary data.
-func (c *Conn) SendData(val []byte) error {
-	conn := c.conn
-	c.nsend += 1
-	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
-	if err != nil {
-		return errors.Wrapf(err, "SendData")
-	}
-	return nil
-}
+// // SendByte sends a byte value.
+// // 多处使用.
+// func (c *Conn) SendByte(val byte) error {
+// 	conn := c.conn
+// 	c.nsend += 1
+// 	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "SendByte")
+// 	}
+// 	return nil
+// }
 
-// SendLabel sends an OT label.
-func (c *Conn) SendLabel(val ot.Label, data *ot.LabelData) error {
-	val.GetData(data)
+// // SendUint16 sends an uint16 value.
+// func (c *Conn) SendUint16(val int) error {
+// 	conn := c.conn
+// 	c.nsend += 1
+// 	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "SendUint16")
+// 	}
+// 	return nil
+// }
 
-	conn := c.conn
-	c.nsend += 1
-	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
-	if err != nil {
-		return errors.Wrapf(err, "SendData")
-	}
-	return nil
-}
+// // SendUint32 sends an uint32 value.
+// func (c *Conn) SendUint32(val int) error {
+// 	conn := c.conn
+// 	c.nsend += 1
+// 	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "SendUint32")
+// 	}
+// 	return nil
+// }
 
-// SendString sends a string value.
-func (c *Conn) SendString(val string) error {
-	conn := c.conn
-	c.nsend += 1
-	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
-	if err != nil {
-		return errors.Wrapf(err, "SendString")
-	}
-	return nil
-}
+// // SendData sends binary data.
+// func (c *Conn) SendData(val []byte) error {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "SendData")
+// 	}
+// 	return nil
+// }
 
-// SendInputSizes sends the input sizes.
-func (c *Conn) SendInputSizes(val []int) error {
-	conn := c.conn
-	c.nsend += 1
-	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
-	if err != nil {
-		return errors.Wrapf(err, "SendString")
-	}
-	return nil
-}
+// // SendLabel sends an OT label.
+// func (c *Conn) SendLabel(val ot.Label, data *ot.LabelData) error {
+// 	val.GetData(data)
 
-// ReceiveByte receives a byte value.
-func (c *Conn) ReceiveByte() (byte, error) {
-	conn := c.conn
-	c.nrecv += 1
-	var recv byte
-	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
-	if err != nil {
-		return recv, errors.Wrapf(err, "ReceiveByte")
-	}
-	return recv, nil
-}
+// 	conn := c.conn
+// 	c.nsend += 1
+// 	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "SendData")
+// 	}
+// 	return nil
+// }
 
-// ReceiveUint16 receives an uint16 value.
-func (c *Conn) ReceiveUint16() (int, error) {
-	conn := c.conn
-	c.nrecv += 1
-	var recv int
-	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
-	if err != nil {
-		return recv, errors.Wrapf(err, "ReceiveUint16")
-	}
-	return recv, nil
-}
+// // SendString sends a string value.
+// func (c *Conn) SendString(val string) error {
+// 	conn := c.conn
+// 	c.nsend += 1
+// 	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "SendString")
+// 	}
+// 	return nil
+// }
 
-// ReceiveUint32 receives an uint32 value.
-func (c *Conn) ReceiveUint32() (int, error) {
-	conn := c.conn
-	c.nrecv += 1
-	var recv int
-	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
-	if err != nil {
-		return recv, errors.Wrapf(err, "ReceiveUint32")
-	}
-	return recv, nil
-}
+// // SendInputSizes sends the input sizes.
+// func (c *Conn) SendInputSizes(val []int) error {
+// 	conn := c.conn
+// 	c.nsend += 1
+// 	err := conn.DirectSend(val, conn.SessionId, "", c.je, c.tu, c.nsend)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "SendString")
+// 	}
+// 	return nil
+// }
 
-// ReceiveData receives binary data.
-func (c *Conn) ReceiveData() ([]byte, error) {
-	conn := c.conn
-	c.nrecv += 1
-	var recv []byte
-	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
-	if err != nil {
-		return recv, errors.Wrapf(err, "ReceiveData")
-	}
-	return recv, nil
-}
+// // ReceiveByte receives a byte value.
+// func (c *Conn) ReceiveByte() (byte, error) {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	var recv byte
+// 	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+// 	if err != nil {
+// 		return recv, errors.Wrapf(err, "ReceiveByte")
+// 	}
+// 	return recv, nil
+// }
 
-// ReceiveLabel receives an OT label.
-func (c *Conn) ReceiveLabel(recv *ot.Label, data *ot.LabelData) error {
-	conn := c.conn
-	c.nrecv += 1
-	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
-	if err != nil {
-		return errors.Wrapf(err, "ReceiveLabel")
-	}
-	recv.GetData(data)
-	return nil
-}
+// // ReceiveUint16 receives an uint16 value.
+// func (c *Conn) ReceiveUint16() (int, error) {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	var recv int
+// 	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+// 	if err != nil {
+// 		return recv, errors.Wrapf(err, "ReceiveUint16")
+// 	}
+// 	return recv, nil
+// }
 
-// ReceiveString receives a string value.
-func (c *Conn) ReceiveString() (string, error) {
-	conn := c.conn
-	c.nrecv += 1
-	var recv string
-	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
-	if err != nil {
-		return recv, errors.Wrapf(err, "ReceiveString")
-	}
-	return recv, nil
-}
+// // ReceiveUint32 receives an uint32 value.
+// func (c *Conn) ReceiveUint32() (int, error) {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	var recv int
+// 	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+// 	if err != nil {
+// 		return recv, errors.Wrapf(err, "ReceiveUint32")
+// 	}
+// 	return recv, nil
+// }
 
-// ReceiveInputSizes receives input sizes.
-func (c *Conn) ReceiveInputSizes() ([]int, error) {
-	conn := c.conn
-	c.nrecv += 1
-	var recv []int
-	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
-	if err != nil {
-		return recv, errors.Wrapf(err, "ReceiveInputSizes")
-	}
-	return recv, nil
-}
+// // ReceiveData receives binary data.
+// func (c *Conn) ReceiveData() ([]byte, error) {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	var recv []byte
+// 	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+// 	if err != nil {
+// 		return recv, errors.Wrapf(err, "ReceiveData")
+// 	}
+// 	return recv, nil
+// }
 
-// Receive implements OT receive for the bit value of a wire.
-func (c *Conn) Receive(receiver *ot.Receiver, wire, bit uint) ([]byte, error) {
-	if err := c.SendUint32(int(wire)); err != nil {
-		return nil, err
-	}
-	if err := c.Flush(); err != nil {
-		return nil, err
-	}
+// // ReceiveLabel receives an OT label.
+// func (c *Conn) ReceiveLabel(recv *ot.Label, data *ot.LabelData) error {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "ReceiveLabel")
+// 	}
+// 	recv.GetData(data)
+// 	return nil
+// }
 
-	xfer, err := receiver.NewTransfer(bit)
-	if err != nil {
-		return nil, err
-	}
+// // ReceiveString receives a string value.
+// func (c *Conn) ReceiveString() (string, error) {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	var recv string
+// 	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+// 	if err != nil {
+// 		return recv, errors.Wrapf(err, "ReceiveString")
+// 	}
+// 	return recv, nil
+// }
 
-	x0, err := c.ReceiveData()
-	if err != nil {
-		return nil, err
-	}
-	x1, err := c.ReceiveData()
-	if err != nil {
-		return nil, err
-	}
-	err = xfer.ReceiveRandomMessages(x0, x1)
-	if err != nil {
-		return nil, err
-	}
+// // ReceiveInputSizes receives input sizes.
+// func (c *Conn) ReceiveInputSizes() ([]int, error) {
+// 	conn := c.conn
+// 	c.nrecv += 1
+// 	var recv []int
+// 	err := conn.DirectRecv(&recv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+// 	if err != nil {
+// 		return recv, errors.Wrapf(err, "ReceiveInputSizes")
+// 	}
+// 	return recv, nil
+// }
 
-	v := xfer.V()
-	if err := c.SendData(v); err != nil {
-		return nil, err
-	}
-	if err := c.Flush(); err != nil {
-		return nil, err
-	}
+// // Receive implements OT receive for the bit value of a wire.
+// func (c *Conn) Receive(receiver *ot.Receiver, wire, bit uint) ([]byte, error) {
+// 	if err := c.SendUint32(int(wire)); err != nil {
+// 		return nil, err
+// 	}
+// 	if err := c.Flush(); err != nil {
+// 		return nil, err
+// 	}
 
-	m0p, err := c.ReceiveData()
-	if err != nil {
-		return nil, err
-	}
-	m1p, err := c.ReceiveData()
-	if err != nil {
-		return nil, err
-	}
+// 	xfer, err := receiver.NewTransfer(bit)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	err = xfer.ReceiveMessages(m0p, m1p, nil)
-	if err != nil {
-		return nil, err
-	}
+// 	x0, err := c.ReceiveData()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	x1, err := c.ReceiveData()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	err = xfer.ReceiveRandomMessages(x0, x1)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	m, _ := xfer.Message()
-	return m, nil
-}
+// 	v := xfer.V()
+// 	if err := c.SendData(v); err != nil {
+// 		return nil, err
+// 	}
+// 	if err := c.Flush(); err != nil {
+// 		return nil, err
+// 	}
+
+// 	m0p, err := c.ReceiveData()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	m1p, err := c.ReceiveData()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	err = xfer.ReceiveMessages(m0p, m1p, nil)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	m, _ := xfer.Message()
+// 	return m, nil
+// }

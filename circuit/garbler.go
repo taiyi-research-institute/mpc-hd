@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/cockroachdb/errors"
 	"github.com/markkurossi/mpc/env"
 	"github.com/markkurossi/mpc/ot"
 	"github.com/markkurossi/mpc/p2p"
@@ -35,9 +36,16 @@ func (s FileSize) String() string {
 }
 
 // Garbler runs the garbler on the P2P network.
-func Garbler(cfg *env.Config, conn *p2p.Conn, oti ot.OT, circ *Circuit,
-	inputs *big.Int, verbose bool) ([]*big.Int, error) {
-
+func Garbler(
+	cfg *env.Config,
+	conn *p2p.Conn,
+	oti ot.OT,
+	circ *Circuit,
+	inputs *big.Int,
+	verbose bool,
+) (
+	[]*big.Int, error,
+) {
 	rand := cfg.GetRandom()
 	timing := NewTiming()
 	if verbose {
@@ -61,47 +69,29 @@ func Garbler(cfg *env.Config, conn *p2p.Conn, oti ot.OT, circ *Circuit,
 	if verbose {
 		fmt.Printf(" - Sending garbled circuit...\n")
 	}
-	if err := conn.SendData(key[:]); err != nil {
+	if err := conn.DirectSend(key, "ephemeral key"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Garbler(...), when sending ephemeral key.")
 		return nil, err
 	}
 
-	// Send garbled tables.
-	if err := conn.SendUint32(len(garbled.Gates)); err != nil {
+	// Send garbled circuits.
+	if err := conn.DirectSend(garbled.Gates, "garbled gates"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Garbler(...), when sending garbled gates.")
 		return nil, err
 	}
-	var labelData ot.LabelData
-	for _, data := range garbled.Gates {
-		if err := conn.SendUint32(len(data)); err != nil {
-			return nil, err
-		}
-		for _, d := range data {
-			if err := conn.SendLabel(d, &labelData); err != nil {
-				return nil, err
-			}
-		}
-	}
 
-	// Select our inputs.
+	// Select and send our inputs.
 	var n1 []ot.Label
 	for i := 0; i < int(circ.Inputs[0].Type.Bits); i++ {
 		wire := garbled.Wires[i]
-
 		n := LabelForBit(wire, inputs.Bit(i) == 1)
-
 		n1 = append(n1, n)
 	}
-
-	// Send our inputs.
-	for idx, i := range n1 {
-		if verbose && false {
-			fmt.Printf("N1[%d]:\t%s\n", idx, i)
-		}
-		if err := conn.SendLabel(i, &labelData); err != nil {
-			return nil, err
-		}
+	if err := conn.DirectSend(n1, "inputs"); err != nil {
+		err = errors.Wrap(err, "in mpc_hd::Garbler(...), when sending inputs.")
 	}
-
-	// TODO: 把以上send改写为register send + exchange
 
 	ioStats := conn.Stats.Sum()
 	timing.Sample("Xfer", []string{FileSize(ioStats).String()})
@@ -110,8 +100,7 @@ func Garbler(cfg *env.Config, conn *p2p.Conn, oti ot.OT, circ *Circuit,
 	}
 
 	// Init oblivious transfer.
-	err = oti.InitSender(conn)
-	if err != nil {
+	if err := oti.InitSender(conn); err != nil {
 		return nil, err
 	}
 	xfer := conn.Stats.Sum() - ioStats
@@ -119,20 +108,22 @@ func Garbler(cfg *env.Config, conn *p2p.Conn, oti ot.OT, circ *Circuit,
 	timing.Sample("OT Init", []string{FileSize(xfer).String()})
 
 	// Peer OTs its inputs.
-	offset, err := conn.ReceiveUint32()
-	if err != nil {
+	type OtQuery struct {
+		Offset int
+		Count  int
+	}
+	var query OtQuery
+	if err := conn.DirectRecv(&query, "ot query"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Garbler(...), when receiving ot query")
 		return nil, err
 	}
-	count, err := conn.ReceiveUint32()
-	if err != nil {
-		return nil, err
+	if query.Offset != int(circ.Inputs[0].Type.Bits) ||
+		query.Count != int(circ.Inputs[1].Type.Bits) {
+		return nil, fmt.Errorf("peer can't OT wires [%d..%d]",
+			query.Offset, query.Offset+query.Count)
 	}
-	if offset != int(circ.Inputs[0].Type.Bits) ||
-		count != int(circ.Inputs[1].Type.Bits) {
-		return nil, fmt.Errorf("peer can't OT wires [%d...%d[",
-			offset, offset+count)
-	}
-	err = oti.Send(garbled.Wires[offset : offset+count])
+	err = oti.Send(garbled.Wires[query.Offset : query.Offset+query.Count])
 	if err != nil {
 		return nil, err
 	}
@@ -141,36 +132,31 @@ func Garbler(cfg *env.Config, conn *p2p.Conn, oti ot.OT, circ *Circuit,
 	timing.Sample("OT", []string{FileSize(xfer).String()})
 
 	// Resolve result values.
-
-	result := big.NewInt(0)
-	var label ot.Label
-
-	for i := 0; i < circ.Outputs.Size(); i++ {
-		err := conn.ReceiveLabel(&label, &labelData)
-		if err != nil {
-			return nil, err
-		}
-		if i == 0 {
-			timing.Sample("Eval", nil)
-		}
-		wire := garbled.Wires[circ.NumWires-circ.Outputs.Size()+i]
-
-		boolBit, err := BitFromLabel(wire, label)
-		if err != nil {
-			return nil, err
-		}
-		var bit uint
-		if boolBit {
-			bit = 1
-		}
-
-		result = big.NewInt(0).SetBit(result, i, bit)
-	}
-	data := result.Bytes()
-	if err := conn.SendData(data); err != nil {
+	var labels []ot.Label
+	if err := conn.DirectRecv(&labels, "ot labels"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Garbler(...), when receiving ot labels")
 		return nil, err
 	}
-	if err := conn.Flush(); err != nil {
+	timing.Sample("Eval", nil)
+
+	result := big.NewInt(0)
+	for i := 0; i < circ.Outputs.Size(); i++ {
+		label := labels[i]
+		wire := garbled.Wires[circ.NumWires-circ.Outputs.Size()+i]
+		boolBit, err := BitFromLabel(wire, label)
+		if err != nil {
+			err = errors.Wrap(err,
+				"in mpc_hd::Garbler(...), when extracting a bit from each label")
+			return nil, err
+		}
+		if boolBit {
+			result = big.NewInt(0).SetBit(result, i, 1)
+		}
+	}
+	if err := conn.DirectSend(result, "result"); err != nil {
+		err = errors.Wrap(err,
+			"in mpc_hd::Garbler(...), when sending result")
 		return nil, err
 	}
 
