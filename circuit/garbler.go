@@ -39,7 +39,7 @@ func (s FileSize) String() string {
 func Garbler(
 	cfg *env.Config,
 	conn *p2p.Conn,
-	oti ot.OT,
+	oti *ot.CO,
 	circ *Circuit,
 	inputs *big.Int,
 	verbose bool,
@@ -47,7 +47,6 @@ func Garbler(
 	[]*big.Int, error,
 ) {
 	rand := cfg.GetRandom()
-	timing := NewTiming()
 	if verbose {
 		fmt.Printf(" - Garbling...\n")
 	}
@@ -62,8 +61,6 @@ func Garbler(
 	if err != nil {
 		return nil, err
 	}
-
-	timing.Sample("Garble", nil)
 
 	// Send program info.
 	if verbose {
@@ -93,19 +90,9 @@ func Garbler(
 		err = errors.Wrap(err, "in mpc_hd::Garbler(...), when sending inputs.")
 	}
 
-	ioStats := conn.Stats.Sum()
-	timing.Sample("Xfer", []string{FileSize(ioStats).String()})
 	if verbose {
 		fmt.Printf(" - Processing messages...\n")
 	}
-
-	// Init oblivious transfer.
-	if err := oti.InitSender(conn); err != nil {
-		return nil, err
-	}
-	xfer := conn.Stats.Sum() - ioStats
-	ioStats = conn.Stats.Sum()
-	timing.Sample("OT Init", []string{FileSize(xfer).String()})
 
 	// Peer OTs its inputs.
 	type OtQuery struct {
@@ -123,13 +110,12 @@ func Garbler(
 		return nil, fmt.Errorf("peer can't OT wires [%d..%d]",
 			query.Offset, query.Offset+query.Count)
 	}
-	err = oti.Send(garbled.Wires[query.Offset : query.Offset+query.Count])
+
+	// 位于 `ot/co.go: Send(...)`
+	err = oti.Send(garbled.Wires[query.Offset:query.Offset+query.Count], conn)
 	if err != nil {
 		return nil, err
 	}
-	xfer = conn.Stats.Sum() - ioStats
-	ioStats = conn.Stats.Sum()
-	timing.Sample("OT", []string{FileSize(xfer).String()})
 
 	// Resolve result values.
 	var labels []ot.Label
@@ -138,7 +124,6 @@ func Garbler(
 			"in mpc_hd::Garbler(...), when receiving ot labels")
 		return nil, err
 	}
-	timing.Sample("Eval", nil)
 
 	result := big.NewInt(0)
 	for i := 0; i < circ.Outputs.Size(); i++ {
@@ -158,12 +143,6 @@ func Garbler(
 		err = errors.Wrap(err,
 			"in mpc_hd::Garbler(...), when sending result")
 		return nil, err
-	}
-
-	xfer = conn.Stats.Sum() - ioStats
-	timing.Sample("Result", []string{FileSize(xfer).String()})
-	if verbose {
-		timing.Print(conn.Stats)
 	}
 
 	return circ.Outputs.Split(result), nil

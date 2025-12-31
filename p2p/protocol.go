@@ -13,12 +13,6 @@ import (
 
 	"github.com/cockroachdb/errors"
 	mgr "github.com/taiyi-research-institute/svarog-messenger/messenger"
-
-	"github.com/markkurossi/mpc/ot"
-)
-
-var (
-	_ ot.IO = &Conn{}
 )
 
 // Conn implements a protocol connection.
@@ -138,16 +132,16 @@ func (c *Conn) Close() error {
 	return c.conn.Close()
 }
 
-func (c *Conn) RegisterSend(snd any) {
+func (c *Conn) RegisterSend(snd any, topic string) {
 	conn := c.conn
 	c.nsend += 1
-	conn.RegisterSend(snd, conn.SessionId, "", c.je, c.tu, c.nsend)
+	conn.RegisterSend(snd, conn.SessionId, topic, c.je, c.tu, c.nsend)
 }
 
-func (c *Conn) RegisterRecv(rcv any) {
+func (c *Conn) RegisterRecv(rcv any, topic string) {
 	conn := c.conn
 	c.nrecv += 1
-	conn.RegisterRecv(rcv, conn.SessionId, "", c.tu, c.je, c.nrecv)
+	conn.RegisterRecv(rcv, conn.SessionId, topic, c.tu, c.je, c.nrecv)
 }
 
 func (c *Conn) Exchange() error {

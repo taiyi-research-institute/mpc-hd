@@ -20,15 +20,13 @@ import (
 // Evaluator runs the evaluator on the P2P network.
 func Evaluator(
 	conn *p2p.Conn,
-	oti ot.OT,
+	oti *ot.CO,
 	circ *Circuit,
 	inputs *big.Int,
 	verbose bool,
 ) (
 	[]*big.Int, error,
 ) {
-	timing := NewTiming()
-
 	// Receive program info.
 	if verbose {
 		fmt.Printf(" - Waiting for circuit info...\n")
@@ -41,7 +39,6 @@ func Evaluator(
 	}
 
 	// Receive garbled tables.
-	timing.Sample("Wait", nil)
 	if verbose {
 		fmt.Printf(" - Receiving garbled circuit...\n")
 	}
@@ -59,13 +56,6 @@ func Evaluator(
 			"in mpc_hd::Evaluator(...), when receiving inputs.")
 		return nil, err
 	}
-
-	// Init oblivious transfer.
-	if err := oti.InitReceiver(conn); err != nil {
-		return nil, err
-	}
-	ioStats := conn.Stats.Sum()
-	timing.Sample("Recv", []string{FileSize(ioStats).String()})
 
 	// Query our inputs.
 	if verbose {
@@ -92,12 +82,10 @@ func Evaluator(
 	}
 	start := int(circ.Inputs[0].Type.Bits)
 	end := start + int(circ.Inputs[1].Type.Bits)
-	if err := oti.Receive(flags, wires[start:end]); err != nil {
+	// 位于 `ot/co.go: Receive(...)`
+	if err := oti.Receive(flags, wires[start:end], conn); err != nil {
 		return nil, err
 	}
-	xfer := conn.Stats.Sum() - ioStats
-	ioStats = conn.Stats.Sum()
-	timing.Sample("Inputs", []string{FileSize(xfer).String()})
 
 	// Evaluate gates.
 	if verbose {
@@ -108,7 +96,6 @@ func Evaluator(
 			"in mpc_hd::Evaluator(...), when evaluating gates.")
 		return nil, err
 	}
-	timing.Sample("Eval", nil)
 
 	// Resolve result values.
 	var labels []ot.Label
@@ -128,12 +115,5 @@ func Evaluator(
 			"in mpc_hd::Evaluator(...), when receiving result.")
 		return nil, err
 	}
-
-	xfer = conn.Stats.Sum() - ioStats
-	timing.Sample("Result", []string{FileSize(xfer).String()})
-	if verbose {
-		timing.Print(conn.Stats)
-	}
-
 	return circ.Outputs.Split(&result), nil
 }

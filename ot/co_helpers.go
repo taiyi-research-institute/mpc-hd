@@ -101,7 +101,15 @@ func GenerateCOSenderSetup(rand io.Reader, curve elliptic.Curve) (COSenderSetup,
 }
 
 // EncryptCOCiphertexts encrypts wire labels for every evaluator input bit.
-func EncryptCOCiphertexts(curve elliptic.Curve, setup COSenderSetup, points []ECPoint, wires []Wire) ([]LabelCiphertext, error) {
+func EncryptCOCiphertexts(
+	curve elliptic.Curve,
+	setup COSenderSetup,
+	points []ECPoint,
+	wires []Wire,
+) (
+	[]LabelCiphertext,
+	error,
+) {
 	if curve == nil {
 		return nil, ErrNilCurve
 	}

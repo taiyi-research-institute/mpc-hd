@@ -252,12 +252,11 @@ func memProfile(file string) {
 }
 
 func evaluatorMode(
-	oti ot.OT,
+	oti *ot.CO,
 	file string,
 	params *utils.Params,
 	once bool,
 ) error {
-
 	inputSizes := make([][]int, 2)
 	myInputSizes, err := circuit.InputSizes(inputFlag)
 	if err != nil {
@@ -273,19 +272,10 @@ func evaluatorMode(
 		return err
 	}
 
-	err = conn.SendInputSizes(myInputSizes)
-	if err != nil {
-		conn.Close()
-		return err
-	}
-	err = conn.Flush()
-	if err != nil {
-		conn.Close()
-		return err
-	}
-	peerInputSizes, err := conn.ReceiveInputSizes()
-	if err != nil {
-		conn.Close()
+	conn.RegisterSend(myInputSizes, "input sizes")
+	var peerInputSizes []int
+	conn.RegisterRecv(&peerInputSizes, "input sizes")
+	if err := conn.Exchange(); err != nil {
 		return err
 	}
 	inputSizes[0] = peerInputSizes
@@ -321,7 +311,11 @@ func evaluatorMode(
 	return err
 }
 
-func garblerMode(oti ot.OT, file string, params *utils.Params) error {
+func garblerMode(
+	oti *ot.CO,
+	file string,
+	params *utils.Params,
+) error {
 	inputSizes := make([][]int, 2)
 	myInputSizes, err := circuit.InputSizes(inputFlag)
 	if err != nil {
@@ -335,22 +329,13 @@ func garblerMode(oti ot.OT, file string, params *utils.Params) error {
 	}
 	defer conn.Close()
 
-	peerInputSizes, err := conn.ReceiveInputSizes()
-	if err != nil {
-		conn.Close()
+	conn.RegisterSend(myInputSizes, "input sizes")
+	var peerInputSizes []int
+	conn.RegisterRecv(&peerInputSizes, "input sizes")
+	if err := conn.Exchange(); err != nil {
 		return err
 	}
 	inputSizes[1] = peerInputSizes
-	err = conn.SendInputSizes(myInputSizes)
-	if err != nil {
-		conn.Close()
-		return err
-	}
-	err = conn.Flush()
-	if err != nil {
-		conn.Close()
-		return err
-	}
 
 	circ, err := loadCircuit(file, params, inputSizes)
 	if err != nil {
