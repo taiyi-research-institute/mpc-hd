@@ -9,6 +9,7 @@
 package p2p
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/cockroachdb/errors"
@@ -155,6 +156,7 @@ func (c *Conn) Exchange() error {
 func (c *Conn) DirectSend(snd any, topic string) error {
 	conn := c.conn
 	c.nsend += 1
+	fmt.Printf("\033[1;32msend (%d, %s, %d, %d)\033[0m\n", c.nsend, topic, c.je, c.tu)
 	err := conn.DirectSend(snd, conn.SessionId, topic, c.je, c.tu, c.nsend)
 	if err != nil {
 		return errors.Wrapf(err, "in mpc_hd::Conn::DirectSend(&self, any)")
@@ -164,7 +166,8 @@ func (c *Conn) DirectSend(snd any, topic string) error {
 
 func (c *Conn) DirectRecv(rcv any, topic string) error {
 	conn := c.conn
-	c.nsend += 1
+	c.nrecv += 1
+	fmt.Printf("\033[1;34mrecv (%d, %s, %d, %d)\033[0m\n", c.nrecv, topic, c.tu, c.je)
 	err := conn.DirectRecv(rcv, conn.SessionId, topic, c.tu, c.je, c.nrecv)
 	if err != nil {
 		return errors.Wrapf(err, "in mpc_hd::Conn::DirectRecv(&self, any)")

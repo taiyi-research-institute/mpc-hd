@@ -51,7 +51,7 @@ func Evaluator(
 
 	// Receive inputs.
 	var wires []ot.Label
-	if err := conn.DirectRecv(&garbled, "inputs"); err != nil {
+	if err := conn.DirectRecv(&wires, "inputs"); err != nil {
 		err = errors.Wrap(err,
 			"in mpc_hd::Evaluator(...), when receiving inputs.")
 		return nil, err

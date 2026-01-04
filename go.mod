@@ -4,9 +4,7 @@ go 1.24.0
 
 require (
 	github.com/cockroachdb/errors v1.12.0
-	github.com/markkurossi/crypto v0.0.0-20240520115340-daed3f9a1082
 	github.com/markkurossi/tabulate v0.0.0-20251126123558-a08056f6160f
-	github.com/markkurossi/text v0.0.0-20250315092940-9a5813bf8efa
 	github.com/taiyi-research-institute/svarog-messenger v0.0.0-20251225030412-c00069d5fdea
 )
 
