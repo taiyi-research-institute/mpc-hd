@@ -27,7 +27,7 @@ func Evaluator(
 ) (
 	[]*big.Int, error,
 ) {
-	// Receive program info.
+	// E1. 接收临时密钥.
 	if verbose {
 		fmt.Printf(" - Waiting for circuit info...\n")
 	}
@@ -38,7 +38,7 @@ func Evaluator(
 		return nil, err
 	}
 
-	// Receive garbled tables.
+	// E2. 接收 gates
 	if verbose {
 		fmt.Printf(" - Receiving garbled circuit...\n")
 	}
@@ -49,15 +49,17 @@ func Evaluator(
 		return nil, err
 	}
 
-	// Receive inputs.
+	// E3. 接收 inputs
 	var wires []ot.Label
 	if err := conn.DirectRecv(&wires, "inputs"); err != nil {
 		err = errors.Wrap(err,
 			"in mpc_hd::Evaluator(...), when receiving inputs.")
 		return nil, err
 	}
+	padlen := circ.NumWires - len(wires)
+	wires = append(wires, make([]ot.Label, padlen)...)
 
-	// Query our inputs.
+	// E4. 发送 offset 和 count
 	if verbose {
 		fmt.Printf(" - Querying our inputs...\n")
 	}
@@ -82,7 +84,8 @@ func Evaluator(
 	}
 	start := int(circ.Inputs[0].Type.Bits)
 	end := start + int(circ.Inputs[1].Type.Bits)
-	// 位于 `ot/co.go: Receive(...)`
+
+	// E5. 执行 ot 接收. 位于 ot/co.go: func Receive
 	if err := oti.Receive(flags, wires[start:end], conn); err != nil {
 		return nil, err
 	}
@@ -97,18 +100,19 @@ func Evaluator(
 		return nil, err
 	}
 
-	// Resolve result values.
+	// E6. 发送结果 labels
 	var labels []ot.Label
 	for i := 0; i < circ.Outputs.Size(); i++ {
 		r := wires[Wire(circ.NumWires-circ.Outputs.Size()+i)]
 		labels = append(labels, r)
 	}
-	if err := conn.DirectSend(&labels, "ot labels"); err != nil {
+	if err := conn.DirectSend(&labels, "result labels"); err != nil {
 		err = errors.Wrap(err,
 			"in mpc_hd::Evaluator(...), when sending ot labels.")
 		return nil, err
 	}
 
+	// E7. 接收结果.
 	var result big.Int
 	if err := conn.DirectRecv(&result, "result"); err != nil {
 		err = errors.Wrap(err,

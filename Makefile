@@ -2,7 +2,7 @@
 
 build:
 	go mod tidy
-	(cd apps/garbled && rm ./garbled && go build)
+	(cd apps/garbled && rm ./garbled || true && go build)
 
 kill_tmux:
 	@tmux kill-session -t mpchd || true

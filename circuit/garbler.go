@@ -62,7 +62,7 @@ func Garbler(
 		return nil, err
 	}
 
-	// Send program info.
+	// G1. 发送临时密钥
 	if verbose {
 		fmt.Printf(" - Sending garbled circuit...\n")
 	}
@@ -72,21 +72,21 @@ func Garbler(
 		return nil, err
 	}
 
-	// Send garbled circuits.
+	// G2. 发送 gates
 	if err := conn.DirectSend(garbled.Gates, "garbled gates"); err != nil {
 		err = errors.Wrap(err,
 			"in mpc_hd::Garbler(...), when sending garbled gates.")
 		return nil, err
 	}
 
-	// Select and send our inputs.
-	var n1 []ot.Label
+	// G3. 发送 inputs
+	var wires []ot.Label
 	for i := 0; i < int(circ.Inputs[0].Type.Bits); i++ {
 		wire := garbled.Wires[i]
 		n := LabelForBit(wire, inputs.Bit(i) == 1)
-		n1 = append(n1, n)
+		wires = append(wires, n)
 	}
-	if err := conn.DirectSend(n1, "inputs"); err != nil {
+	if err := conn.DirectSend(wires, "inputs"); err != nil {
 		err = errors.Wrap(err, "in mpc_hd::Garbler(...), when sending inputs.")
 	}
 
@@ -94,7 +94,7 @@ func Garbler(
 		fmt.Printf(" - Processing messages...\n")
 	}
 
-	// Peer OTs its inputs.
+	// G4. 接收 offset 和 count
 	type OtQuery struct {
 		Offset int
 		Count  int
@@ -111,20 +111,21 @@ func Garbler(
 			query.Offset, query.Offset+query.Count)
 	}
 
-	// 位于 `ot/co.go: Send(...)`
+	// G5. 执行 ot 发送. 位于 ot/co.go: func Send
 	err = oti.Send(garbled.Wires[query.Offset:query.Offset+query.Count], conn)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve result values.
+	// G6. 接收结果 labels
 	var labels []ot.Label
-	if err := conn.DirectRecv(&labels, "ot labels"); err != nil {
+	if err := conn.DirectRecv(&labels, "result labels"); err != nil {
 		err = errors.Wrap(err,
 			"in mpc_hd::Garbler(...), when receiving ot labels")
 		return nil, err
 	}
 
+	// G7. 发送结果
 	result := big.NewInt(0)
 	for i := 0; i < circ.Outputs.Size(); i++ {
 		label := labels[i]
