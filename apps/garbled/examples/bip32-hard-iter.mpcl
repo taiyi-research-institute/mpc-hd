@@ -1,0 +1,41 @@
+package main
+
+import (
+	"crypto/hmac"
+	"encoding/binary"
+)
+
+const (
+	K256Order uint256 = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
+)
+
+type Garbler struct {
+	wi uint256
+	cc [32]byte
+	idx uint32
+}
+
+type Evaluator struct {
+	wi uint256
+}
+
+func scalar_add(a, b uint256) []byte {
+	var y0 uint257 = (uint257(a) + uint257(b)) % uint257(K256Order)
+	var y uint256 = uint256(y0)
+	var buf [32]byte
+	binary.PutUint(buf, 0, y)
+	return buf[:]
+}
+
+func main(g Garbler, e Evaluator) (
+	[32]byte, // 私钥偏移量. 由调用者加到父私钥上去.
+	[32]byte, // 子链码.
+) {
+	var par_sk []byte = scalar_add(g.wi, e.wi)
+	var data [37]byte
+	var idx uint32 = g.idx + 0x80000000
+	copy(data[1:33], par_sk)
+	binary.PutUint32(data, 33, idx)
+	
+	return hmac.SumSHA512(data, g.cc[:])
+}
