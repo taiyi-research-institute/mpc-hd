@@ -23,7 +23,6 @@ import (
 	"github.com/markkurossi/mpc/compiler"
 	"github.com/markkurossi/mpc/compiler/utils"
 	"github.com/markkurossi/mpc/ot"
-	"github.com/markkurossi/mpc/p2p"
 )
 
 var (
@@ -78,7 +77,7 @@ func evaluator_fn(
 	params.OptPruneGates = true
 	defer params.Close()
 
-	conn, err := p2p.NewConn(false, host, port, sid)
+	conn, err := ot.NewConn(false, host, port, sid)
 	if err != nil {
 		return nil, errors.Wrap(err, "in evaluator_fn()")
 	}
@@ -149,7 +148,7 @@ func garbler_fn(
 	params.OptPruneGates = true
 	defer params.Close()
 
-	conn, err := p2p.NewConn(true, host, port, session_id)
+	conn, err := ot.NewConn(true, host, port, session_id)
 	if err != nil {
 		return nil, errors.Wrap(err, "in garbler_fn()")
 	}

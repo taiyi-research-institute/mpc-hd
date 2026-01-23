@@ -11,7 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/markkurossi/mpc/circuit"
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 var (

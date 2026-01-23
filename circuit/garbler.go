@@ -13,9 +13,8 @@ import (
 	"math/big"
 
 	"github.com/cockroachdb/errors"
-	"github.com/markkurossi/mpc/env"
+	"github.com/markkurossi/mpc/compiler/utils"
 	"github.com/markkurossi/mpc/ot"
-	"github.com/markkurossi/mpc/p2p"
 )
 
 // FileSize specifies a file (or data transfer) size in bytes.
@@ -37,8 +36,8 @@ func (s FileSize) String() string {
 
 // Garbler runs the garbler on the P2P network.
 func Garbler(
-	cfg *env.Config,
-	conn *p2p.Conn,
+	cfg *utils.Config,
+	conn *ot.Conn,
 	oti *ot.CO,
 	circ *Circuit,
 	inputs *big.Int,

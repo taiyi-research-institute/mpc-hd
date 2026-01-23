@@ -12,7 +12,7 @@ import (
 
 	"github.com/markkurossi/mpc/circuit"
 	"github.com/markkurossi/mpc/compiler/circuits"
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 // Operand specifies SSA assembly operand

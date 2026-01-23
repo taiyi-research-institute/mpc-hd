@@ -12,7 +12,8 @@ import (
 	"slices"
 
 	"github.com/markkurossi/mpc/compiler/ssa"
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
+
 	"github.com/markkurossi/tabulate"
 )
 

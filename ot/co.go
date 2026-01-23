@@ -49,7 +49,6 @@ import (
 	"math/big"
 
 	"github.com/cockroachdb/errors"
-	"github.com/markkurossi/mpc/p2p"
 )
 
 // COSender implements CO OT sender.
@@ -234,7 +233,7 @@ func NewCO(rand io.Reader) *CO {
 }
 
 // Send sends the wire labels with OT.
-func (co *CO) Send(wires []Wire, conn *p2p.Conn) error {
+func (co *CO) Send(wires []Wire, conn *Conn) error {
 	setup, err := GenerateCOSenderSetup(co.rand, co.curve)
 	if err != nil {
 		err = errors.Wrap(err,
@@ -272,7 +271,7 @@ func (co *CO) Send(wires []Wire, conn *p2p.Conn) error {
 }
 
 // Receive receives the wire labels with OT based on the flag values.
-func (co *CO) Receive(flags []bool, result []Label, conn *p2p.Conn) error {
+func (co *CO) Receive(flags []bool, result []Label, conn *Conn) error {
 	rcv := &ECPoint{}
 	if err := conn.DirectRecv(rcv, "setup.Ax,Ay"); err != nil {
 		err = errors.Wrap(err,

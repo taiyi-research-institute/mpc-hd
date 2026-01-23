@@ -8,7 +8,7 @@ require (
 	github.com/taiyi-research-institute/svarog-messenger v0.0.0-20251225030412-c00069d5fdea
 )
 
-replace github.com/taiyi-research-institute/svarog-messenger => ../svarog-messenger
+replace github.com/taiyi-research-institute/svarog-messenger => ./svarog-messenger
 
 require (
 	github.com/cockroachdb/logtags v0.0.0-20241215232642-bb51bb14a506 // indirect

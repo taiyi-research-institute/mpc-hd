@@ -9,6 +9,7 @@ package compiler
 import (
 	"bufio"
 	"fmt"
+	"go/types"
 	"io"
 	"strconv"
 	"unicode"
@@ -16,7 +17,6 @@ import (
 	"github.com/markkurossi/mpc/compiler/ast"
 	"github.com/markkurossi/mpc/compiler/mpa"
 	"github.com/markkurossi/mpc/compiler/utils"
-	"github.com/markkurossi/mpc/types"
 )
 
 // TokenType specifies input token types.

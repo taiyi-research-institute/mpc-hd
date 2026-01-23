@@ -31,9 +31,6 @@ func TestEnc(t *testing.T) {
 	var data ot.LabelData
 
 	encrypted := encrypt(cipher, a, b, c, tweak, &data)
-	if err != nil {
-		t.Fatalf("Encrypt failed: %s", err)
-	}
 
 	plain := decrypt(cipher, a, b, tweak, encrypted, &data)
 

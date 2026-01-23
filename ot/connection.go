@@ -6,21 +6,18 @@
 
 // Package p2p implements point-to-point protocols for multi-party
 // computation peers.
-package p2p
+package ot
 
 import (
-	"sync/atomic"
-
 	"github.com/cockroachdb/errors"
 	mgr "github.com/taiyi-research-institute/svarog-messenger/messenger"
 )
 
 // Conn implements a protocol connection.
 type Conn struct {
-	conn  *mgr.MessengerClient
-	Stats IOStats
-	je    int
-	tu    int
+	conn *mgr.MessengerClient
+	je   int
+	tu   int
 
 	nsend int
 	nrecv int
@@ -28,52 +25,6 @@ type Conn struct {
 
 func (c *Conn) SessionId() string {
 	return c.conn.SessionId
-}
-
-// IOStats implements I/O statistics.
-type IOStats struct {
-	Sent    *atomic.Uint64
-	Recvd   *atomic.Uint64
-	Flushed *atomic.Uint64
-}
-
-// NewIOStats creates a new I/O statistics object.
-func NewIOStats() IOStats {
-	return IOStats{
-		Sent:    new(atomic.Uint64),
-		Recvd:   new(atomic.Uint64),
-		Flushed: new(atomic.Uint64),
-	}
-}
-
-// Clear clears the I/O statistics.
-func (stats IOStats) Clear() {
-	stats.Sent.Store(0)
-	stats.Recvd.Store(0)
-	stats.Flushed.Store(0)
-}
-
-// Add adds the argument stats to this IOStats and returns the sum.
-func (stats IOStats) Add(o IOStats) IOStats {
-	sent := new(atomic.Uint64)
-	sent.Store(stats.Sent.Load() + o.Sent.Load())
-
-	recvd := new(atomic.Uint64)
-	recvd.Store(stats.Recvd.Load() + o.Recvd.Load())
-
-	flushed := new(atomic.Uint64)
-	flushed.Store(stats.Flushed.Load() + o.Flushed.Load())
-
-	return IOStats{
-		Sent:    sent,
-		Recvd:   recvd,
-		Flushed: flushed,
-	}
-}
-
-// Sum returns sum of sent and received bytes.
-func (stats IOStats) Sum() uint64 {
-	return stats.Sent.Load() + stats.Recvd.Load()
 }
 
 // NewConn creates a new connection around the argument connection.
@@ -96,7 +47,6 @@ func NewConn(isGarbler bool, host string, port uint16, sid string) (*Conn, error
 
 	c := &Conn{
 		conn:  conn,
-		Stats: NewIOStats(),
 		nsend: 0,
 		nrecv: 0,
 	}

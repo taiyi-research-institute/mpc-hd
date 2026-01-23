@@ -14,12 +14,11 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/markkurossi/mpc/ot"
-	"github.com/markkurossi/mpc/p2p"
 )
 
 // Evaluator runs the evaluator on the P2P network.
 func Evaluator(
-	conn *p2p.Conn,
+	conn *ot.Conn,
 	oti *ot.CO,
 	circ *Circuit,
 	inputs *big.Int,

@@ -12,7 +12,7 @@ import (
 
 	"github.com/markkurossi/mpc/compiler/mpa"
 	"github.com/markkurossi/mpc/compiler/ssa"
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 const (

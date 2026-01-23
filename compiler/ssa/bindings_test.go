@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 func TestSet(t *testing.T) {

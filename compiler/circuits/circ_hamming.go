@@ -8,7 +8,7 @@ package circuits
 
 import (
 	"github.com/markkurossi/mpc/circuit"
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 // Hamming creates a hamming distance circuit computing the hamming

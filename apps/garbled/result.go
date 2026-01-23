@@ -14,7 +14,7 @@ import (
 	"unicode"
 
 	"github.com/markkurossi/mpc/circuit"
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 // PrintResults prints the result values.

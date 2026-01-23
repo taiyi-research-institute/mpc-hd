@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 // IO specifies circuit input and output arguments.

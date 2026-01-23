@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/markkurossi/mpc/types"
+	"github.com/markkurossi/mpc/compiler/types"
 )
 
 var reParts = regexp.MustCompilePOSIX("[[:space:]]+")

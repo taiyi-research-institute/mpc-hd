@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/markkurossi/mpc/compiler/mpa"
+	"github.com/markkurossi/mpc/compiler/types"
 	"github.com/markkurossi/mpc/compiler/utils"
-	"github.com/markkurossi/mpc/types"
 )
 
 var inputs = []string{
