@@ -15,6 +15,7 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"os"
 	"slices"
 	"strings"
 
@@ -31,26 +32,31 @@ var (
 )
 
 func main() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Println("Error getting current directory:", err)
+		return
+	}
+	err = os.Setenv("MPCLDIR", cwd)
+	if err != nil {
+		fmt.Println("Error setting environment variable:", err)
+		return
+	}
+	log.Printf("$MPCLDIR has been set to %s.\r\n", cwd)
+
 	var args InputArguments
 	flag.Var(&args, "i", "comma-separated list of circuit inputs")
-	var deps DependencyDirectories
-	flag.Var(&deps, "deps", "colon-separated list of directories of circuit dependencies")
 	evaluator := flag.Bool("e", false, "evaluator / garbler mode")
 	flag.Parse()
-	log.SetFlags(0)
 
-	if len(flag.Args()) != 1 {
-		log.Fatalf("expected one input file, got %v\n", len(flag.Args()))
-	}
-	file := flag.Args()[0]
+	file := "pkg/bip32_derive_tweak_ec.mpcl"
 
 	var buf []byte
-	var err error
 	if *evaluator {
-		buf, err = evaluator_fn("dummy_session_id", args, file, deps, true)
+		buf, err = evaluator_fn("dummy_session_id", args, file, nil, true)
 		log.Println("evaluator result:", hex.EncodeToString(buf))
 	} else {
-		buf, err = garbler_fn("dummy_session_id", args, file, deps, true)
+		buf, err = garbler_fn("dummy_session_id", args, file, nil, true)
 		log.Println("garbler result:", hex.EncodeToString(buf))
 	}
 	if err != nil {
