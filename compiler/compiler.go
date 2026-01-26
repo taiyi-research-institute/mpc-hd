@@ -190,7 +190,7 @@ func (c *Compiler) resolvePkgPathByCaller() (string, bool) {
 		return file, false
 	}
 	parts = parts[:len(parts)-2]
-	parts = append(parts, "pkg")
+	// parts = append(parts, "pkg")
 	dir := strings.Join(parts, "/")
 	df, err := os.Open(dir)
 	if err != nil {
@@ -214,12 +214,12 @@ var pkgPaths = []*pkgPath{
 	{
 		precond: "MPCLDIR",
 		env:     "MPCLDIR",
-		prefix:  "pkg",
+		// prefix:  "pkg",
 	},
 	{
 		precond: "GITHUB_WORKFLOW",
 		env:     "GITHUB_WORKSPACE",
-		prefix:  "pkg",
+		// prefix:  "pkg",
 	},
 	{
 		env:    "HOME",

@@ -20,6 +20,7 @@ make lib
 
 ```c
 int c_evaluator_fn(
+    const char* circ_dir,     // Directory containing circuit files
     const char* sid,          // Session ID
     const char* ui,           // Secret integer as "0x"-prefixed hex string (within 32 bytes)
     unsigned char** result_ptr, // Output: result byte array
@@ -35,6 +36,7 @@ int c_evaluator_fn(
 
 ```c
 int c_garbler_fn(
+    const char* circ_dir,     // Directory containing circuit files
     const char* session_id,   // Session ID
     const char* ui,           // Secret integer as "0x"-prefixed hex string (within 32 bytes)
     const char* cc,           // Chain code as "0x"-prefixed hex string (within 32 bytes)
@@ -100,10 +102,13 @@ fn main() {
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_uchar};
 
+// 指定电路文件目录
+let circ_dir = "./apps/garbled/circ_dir";
+
 // 调用 evaluator
 let session_id = "你的session_id";
 let ui = "0x1919810";
-match evaluator(session_id, ui) {
+match evaluator(circ_dir, session_id, ui) {
     Ok(result) => println!("Result: {}", hex::encode(result)),
     Err(e) => eprintln!("Error: {}", e),
 }
@@ -113,7 +118,27 @@ let session_id = "你的session_id";
 let ui = "0x114514";
 let cc = "0x4de216d2fdc9301e5b9c78486f7109a05670d200d9e2f275ec0aad08ec42afe7";
 let cnum = "893";
-match garbler(session_id, ui, cc, cnum) {
+match garbler(circ_dir, session_id, ui, cc, cnum) {
+    Ok(result) => println!("Result: {}", hex::encode(result)),
+    Err(e) => eprintln!("Error: {}", e),
+}
+```
+
+### 使用环境变量
+
+```bash
+# 设置电路文件目录位置
+export MPC_CIRC_DIR=/path/to/circuit/dir
+LD_LIBRARY_PATH=./apps/garbled ./rust_ffi_example
+```
+
+在 Rust 代码中：
+
+```rust
+let circ_dir = std::env::var("MPC_CIRC_DIR")
+    .unwrap_or_else(|_| "./apps/garbled/circ_dir".to_string());
+
+match evaluator(&circ_dir, "session_id", "0x1919810") {
     Ok(result) => println!("Result: {}", hex::encode(result)),
     Err(e) => eprintln!("Error: {}", e),
 }
@@ -132,4 +157,8 @@ make clean-lib
 1. **线程安全性**: Go 的运行时是多线程的，确保在多线程环境中正确使用
 2. **内存管理**: 必须调用 `c_free_result` 释放返回的内存
 3. **错误处理**: 函数返回 -1 时表示失败，详细错误信息会输出到日志
-4. **环境变量**: 确保设置了正确的 `MPCLDIR` 环境变量（Go 代码会自动设置）
+4. **电路文件路径**:
+   - `circ_dir` 参数应该指向包含电路文件（`.mpcl`）的目录（例如：`./apps/garbled/pkg`）
+   - 函数内部会自动拼接电路文件名 `/bip32_derive_tweak_ec.mpcl`
+   - 可以使用绝对路径或相对路径
+   - 建议使用环境变量 `MPC_CIRC_DIR` 来配置路径

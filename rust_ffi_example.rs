@@ -8,6 +8,9 @@
 //
 // Run with library path:
 //   LD_LIBRARY_PATH=./apps/garbled ./rust_ffi_example
+//
+// Or set the circuit directory via environment variable:
+//   MPC_CIRC_DIR=/path/to/circuit/dir LD_LIBRARY_PATH=./apps/garbled ./rust_ffi_example
 
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_uchar};
@@ -18,6 +21,7 @@ extern "C" {
     /// Evaluator function
     /// Returns 0 on success, -1 on error
     fn c_evaluator_fn(
+        circ_dir: *const c_char,
         sid: *const c_char,
         ui: *const c_char,
         result_ptr: *mut *mut c_uchar,
@@ -27,6 +31,7 @@ extern "C" {
     /// Garbler function
     /// Returns 0 on success, -1 on error
     fn c_garbler_fn(
+        circ_dir: *const c_char,
         session_id: *const c_char,
         ui: *const c_char,
         cc: *const c_char,
@@ -40,7 +45,8 @@ extern "C" {
 }
 
 /// Safe Rust wrapper for evaluator function
-pub fn evaluator(session_id: &str, ui: &str) -> Result<Vec<u8>, String> {
+pub fn evaluator(circ_dir: &str, session_id: &str, ui: &str) -> Result<Vec<u8>, String> {
+    let c_circ_dir = CString::new(circ_dir).map_err(|e| e.to_string())?;
     let c_sid = CString::new(session_id).map_err(|e| e.to_string())?;
     let c_ui = CString::new(ui).map_err(|e| e.to_string())?;
 
@@ -49,6 +55,7 @@ pub fn evaluator(session_id: &str, ui: &str) -> Result<Vec<u8>, String> {
 
     let ret = unsafe {
         c_evaluator_fn(
+            c_circ_dir.as_ptr(),
             c_sid.as_ptr(),
             c_ui.as_ptr(),
             &mut result_ptr,
@@ -76,11 +83,13 @@ pub fn evaluator(session_id: &str, ui: &str) -> Result<Vec<u8>, String> {
 
 /// Safe Rust wrapper for garbler function
 pub fn garbler(
+    circ_dir: &str,
     session_id: &str,
     ui: &str,
     cc: &str,
     cnum: &str,
 ) -> Result<Vec<u8>, String> {
+    let c_circ_dir = CString::new(circ_dir).map_err(|e| e.to_string())?;
     let c_sid = CString::new(session_id).map_err(|e| e.to_string())?;
     let c_ui = CString::new(ui).map_err(|e| e.to_string())?;
     let c_cc = CString::new(cc).map_err(|e| e.to_string())?;
@@ -91,6 +100,7 @@ pub fn garbler(
 
     let ret = unsafe {
         c_garbler_fn(
+            c_circ_dir.as_ptr(),
             c_sid.as_ptr(),
             c_ui.as_ptr(),
             c_cc.as_ptr(),
@@ -121,9 +131,16 @@ pub fn garbler(
 fn main() {
     println!("Testing Rust FFI bindings for Go C library\n");
 
+    // Get the circuit directory path
+    // You can pass this as a command line argument or environment variable
+    let circ_dir = std::env::var("MPC_CIRC_DIR")
+        .unwrap_or_else(|_| "./apps/garbled/circ_dir".to_string());
+
+    println!("Using circuit directory: {}\n", circ_dir);
+
     // Test evaluator
     println!("Testing evaluator function...");
-    match evaluator("test_session_1", "0x1919810") {
+    match evaluator(&circ_dir, "test_session_1", "0x1919810") {
         Ok(result) => {
             println!("Evaluator result: {}", hex::encode(&result));
         }
@@ -135,6 +152,7 @@ fn main() {
     // Test garbler
     println!("\nTesting garbler function...");
     match garbler(
+        &circ_dir,
         "test_session_2",
         "0x114514",
         "0x4de216d2fdc9301e5b9c78486f7109a05670d200d9e2f275ec0aad08ec42afe7",
