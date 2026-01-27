@@ -7,7 +7,7 @@ build:
 # Build C shared library for Rust FFI
 lib:
 	@echo "Building C shared library from Go code..."
-	@(cd apps/garbled && go build -buildmode=c-shared -o libgarbled.so main.go result.go)
+	@(cd apps/garbled && go build -buildmode=c-shared -o libgarbled.so c_export.go result.go)
 	@echo "Successfully built apps/garbled/libgarbled.so and apps/garbled/libgarbled.h"
 
 clean-lib:

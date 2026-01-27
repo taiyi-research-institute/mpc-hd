@@ -17,21 +17,21 @@ func main(g Garbler, e Evaluator) []byte {
 }
 
 const (
-	N uint256 = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
+	N uint257 = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
 )
 
 type Garbler struct {
-	wi uint256
+	wi uint257
 	cc [32]byte
 	idx uint32
 }
 
 type Evaluator struct {
-	wi uint256
+	wi uint257
 }
 
-func scalar_add(a, b uint) []byte {
-	sk := uint256( (uint257(a)+uint257(b)) % uint257(N) )
+func scalar_add(a, b uint257) []byte {
+	sk := uint256( (a+b)%N )
 	sk_bytes := binary.PutUint(make([]byte, 32), 0, sk)
 	return sk_bytes
 }

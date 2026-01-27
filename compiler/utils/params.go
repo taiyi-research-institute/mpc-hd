@@ -28,9 +28,9 @@ type Params struct {
 	MPCLCErrorLoc bool
 	Warn          *Warnings
 
-	// PkgPath defines additional directories to search for imported
+	// CircHome defines additional directories to search for imported
 	// packages.
-	PkgPath []string
+	CircHome []string
 
 	// MaxLoopUnroll specifies the upper limit for loop unrolling.
 	MaxLoopUnroll int

@@ -245,7 +245,7 @@ func (c *Compiler) parsePkg(alias, name, source string) (*ast.Package, error) {
 
 	var dirs []string
 	dirs = append(dirs, c.pkgPath)
-	dirs = append(dirs, c.params.PkgPath...)
+	dirs = append(dirs, c.params.CircHome...)
 
 	for _, dir := range dirs {
 		pkg, ok, err := c.tryParsePkg(pkg, dir, name)

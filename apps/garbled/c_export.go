@@ -21,6 +21,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unsafe"
@@ -39,7 +40,7 @@ var (
 
 // C-exported evaluator function for Rust FFI
 // Parameters:
-//   - circ_dir: directory containing circuit files (null-terminated C string)
+//   - circ_file: path to circuit file (null-terminated C string)
 //   - sid: session ID (null-terminated C string)
 //   - ui: secret integer as hex string with "0x" prefix (null-terminated C string)
 //   - result_ptr: pointer to store the result byte array
@@ -48,14 +49,14 @@ var (
 // Returns: 0 on success, -1 on error
 //
 //export c_evaluator_fn
-func c_evaluator_fn(circ_dir *C.char, sid *C.char, ui *C.char, result_ptr **C.uchar, result_len *C.int) C.int {
+func c_evaluator_fn(circ_file *C.char, sid *C.char, ui *C.char, result_ptr **C.uchar, result_len *C.int) C.int {
 	// Convert C strings to Go strings
-	goCircDir := C.GoString(circ_dir)
+	goCircFile := C.GoString(circ_file)
 	goSid := C.GoString(sid)
 	goUi := C.GoString(ui)
 
 	// Call the Go evaluator function
-	buf, err := evaluator_fn(goCircDir, goSid, goUi)
+	buf, err := evaluator_fn(goCircFile, goSid, goUi)
 	if err != nil {
 		log.Printf("c_evaluator_fn error: %v", err)
 		return -1
@@ -79,7 +80,7 @@ func c_evaluator_fn(circ_dir *C.char, sid *C.char, ui *C.char, result_ptr **C.uc
 
 // C-exported garbler function for Rust FFI
 // Parameters:
-//   - circ_dir: directory containing circuit files (null-terminated C string)
+//   - circ_file: path to circuit file (null-terminated C string)
 //   - session_id: session ID (null-terminated C string)
 //   - ui: secret integer as hex string with "0x" prefix (null-terminated C string)
 //   - cc: chain code as hex string with "0x" prefix (null-terminated C string)
@@ -90,16 +91,16 @@ func c_evaluator_fn(circ_dir *C.char, sid *C.char, ui *C.char, result_ptr **C.uc
 // Returns: 0 on success, -1 on error
 //
 //export c_garbler_fn
-func c_garbler_fn(circ_dir *C.char, session_id *C.char, ui *C.char, cc *C.char, cnum *C.char, result_ptr **C.uchar, result_len *C.int) C.int {
+func c_garbler_fn(circ_file *C.char, session_id *C.char, ui *C.char, cc *C.char, cnum *C.char, result_ptr **C.uchar, result_len *C.int) C.int {
 	// Convert C strings to Go strings
-	goCircDir := C.GoString(circ_dir)
+	goCircFile := C.GoString(circ_file)
 	goSessionId := C.GoString(session_id)
 	goUi := C.GoString(ui)
 	goCc := C.GoString(cc)
 	goCnum := C.GoString(cnum)
 
 	// Call the Go garbler function
-	buf, err := garbler_fn(goCircDir, goSessionId, goUi, goCc, goCnum)
+	buf, err := garbler_fn(goCircFile, goSessionId, goUi, goCc, goCnum)
 	if err != nil {
 		log.Printf("c_garbler_fn error: %v", err)
 		return -1
@@ -128,52 +129,19 @@ func c_free_result(ptr *C.uchar) {
 	C.free(unsafe.Pointer(ptr))
 }
 
-func main() {
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Println("Error getting current directory:", err)
-		return
-	}
-
-	var args InputArguments
-	flag.Var(&args, "i", "comma-separated list of circuit inputs")
-	evaluator := flag.Bool("e", false, "evaluator / garbler mode")
-	flag.Parse()
-
-	var buf []byte
-	if *evaluator {
-		buf, err = evaluator_fn(cwd+"/circuits",
-			"dummy_session_id", args[0])
-		log.Println("evaluator result:", hex.EncodeToString(buf))
-	} else {
-		buf, err = garbler_fn(cwd+"/circuits",
-			"dummy_session_id", args[0], args[1], args[2])
-		log.Println("garbler result:", hex.EncodeToString(buf))
-	}
-	if err != nil {
-		log.Fatal(err)
-	}
-	buf_gt, _ := hex.DecodeString("5c3de1895a724508483c65e3c08ad623db8e319b59294f5a170e521c0cb62980cb6729d2d51cbb17247997ca59584c20356f9cb39ac6ae7c82a5a0671b3f3934")
-	if slices.Compare(buf, buf_gt) == 0 {
-		log.Println("\033[1;34m Congratulations !!! \033[0m")
-	} else {
-		log.Fatal("\033[1;34m Wrong implementation !!! \033[0m")
-	}
-}
-
 func evaluator_fn(
-	circ_dir string,
-	sid string,
+	circ_file string, // e.g. "$HOME/circ_home"
+	session_id string,
 	ui string, // "0x"-leading hex string, within 32 bytes.
 ) ([]byte, error) {
 	params := utils.NewParams()
 	params.Verbose = false
 	params.OptPruneGates = true
-	params.PkgPath = []string{circ_dir}
+	params.CircHome = []string{filepath.Dir(circ_file)}
 	defer params.Close()
 	args := []string{ui}
 
-	conn, err := ot.NewConn(false, host, port, sid)
+	conn, err := ot.NewConn(false, host, port, session_id)
 	if err != nil {
 		return nil, errors.Wrap(err, "in evaluator_fn()")
 	}
@@ -203,8 +171,7 @@ func evaluator_fn(
 	var circ *circuit.Circuit
 	var oPeerInputSizes []int
 	if slices.Compare(peerInputSizes, oPeerInputSizes) != 0 {
-		circPath := circ_dir + "/bip32_derive_tweak_ec.mpcl"
-		circ, err = loadCircuit(circPath, params, inputSizes)
+		circ, err = loadCircuit(circ_file, params, inputSizes)
 		if err != nil {
 			conn.Close()
 			return nil, errors.Wrap(err, "in evaluator_fn()")
@@ -233,7 +200,7 @@ func evaluator_fn(
 }
 
 func garbler_fn(
-	circ_dir string,
+	circ_file string, // e.g. "$HOME/circ_home"
 	session_id string,
 	ui string, // "0x"-leading hex string, within 32 bytes.
 	cc string, // "0x"-leading hex string, within 32 bytes.
@@ -241,7 +208,7 @@ func garbler_fn(
 ) ([]byte, error) {
 	params := utils.NewParams()
 	params.Verbose = false
-	params.PkgPath = []string{circ_dir}
+	params.CircHome = []string{filepath.Dir(circ_file)}
 	params.OptPruneGates = true
 	defer params.Close()
 	args := []string{ui, cc, cnum}
@@ -273,8 +240,7 @@ func garbler_fn(
 	log.Println("evaluator exchanged input sizes")
 	inputSizes[0] = peerInputSizes
 
-	circPath := circ_dir + "/bip32_derive_tweak_ec.mpcl"
-	circ, err := loadCircuit(circPath, params, inputSizes)
+	circ, err := loadCircuit(circ_file, params, inputSizes)
 	if err != nil {
 		return nil, errors.Wrap(err, "in garbler_fn()")
 	}
@@ -354,4 +320,40 @@ func (pkg *DependencyDirectories) Set(value string) error {
 		*pkg = append(*pkg, v)
 	}
 	return nil
+}
+
+func main() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Println("Error getting current directory:", err)
+		return
+	}
+
+	var args InputArguments
+	flag.Var(&args, "i", "comma-separated list of circuit inputs")
+	evaluator := flag.Bool("e", false, "evaluator / garbler mode")
+	flag.Parse()
+
+	var buf []byte
+	if *evaluator {
+		buf, err = evaluator_fn(cwd+"/../../circ_home/bip32_derive_tweak_ec.mpcl",
+			"dummy_session_id", args[0])
+		log.Println("evaluator result:", hex.EncodeToString(buf))
+	} else {
+		buf, err = garbler_fn(cwd+"/../../circ_home/bip32_derive_tweak_ec.mpcl",
+			"dummy_session_id", args[0], args[1], args[2])
+		log.Println("garbler result:", hex.EncodeToString(buf))
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	buf_gt, _ := hex.DecodeString("" +
+		"5c3de1895a724508483c65e3c08ad623db8e319b59294f5a170e521c0cb62980" +
+		"cb6729d2d51cbb17247997ca59584c20356f9cb39ac6ae7c82a5a0671b3f3934",
+	)
+	if slices.Compare(buf, buf_gt) == 0 {
+		log.Println("\033[1;34m Congratulations !!! \033[0m")
+	} else {
+		log.Fatal("\033[1;34m Wrong implementation !!! \033[0m")
+	}
 }
