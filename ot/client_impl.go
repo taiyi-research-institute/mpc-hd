@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -134,10 +135,12 @@ func (cl *MessengerClient) DirectSend(
 		return err
 	}
 
-	log.Printf(
-		"finish DirectSend. sid=[%s], topic=[%s], src=%d, dst=%d, seq=%d, size=%dbytes.",
-		sid, topic, src, dst, seq, len(req0.Val),
-	)
+	if os.Getenv("GARBLED_VERBOSE") != "" {
+		log.Printf(
+			"finish DirectSend. sid=[%s], topic=[%s], src=%d, dst=%d, seq=%d, size=%dbytes.",
+			sid, topic, src, dst, seq, len(req0.Val),
+		)
+	}
 	return nil
 }
 
@@ -180,10 +183,12 @@ func (cl *MessengerClient) DirectRecv(
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
 		return err
 	}
-	log.Printf(
-		"finish DirectRecv. sid=[%s], topic=[%s], src=%d, dst=%d, seq=%d, size=%dbytes.",
-		sid, topic, src, dst, seq, nbytes,
-	)
+	if os.Getenv("GARBLED_VERBOSE") != "" {
+		log.Printf(
+			"finish DirectRecv. sid=[%s], topic=[%s], src=%d, dst=%d, seq=%d, size=%dbytes.",
+			sid, topic, src, dst, seq, nbytes,
+		)
+	}
 
 	return nil
 }

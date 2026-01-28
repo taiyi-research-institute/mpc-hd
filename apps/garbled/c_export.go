@@ -58,7 +58,7 @@ func c_evaluator_fn(
 		goCircFile, goHostPort, goSid, goUi, goCc, goCnum, goOrder,
 	)
 	if err != nil {
-		log.Printf("c_evaluator_fn error: %v", err)
+		log.Printf("c_evaluator_fn error: %+v", err)
 		return -1
 	}
 
@@ -98,7 +98,7 @@ func c_garbler_fn(
 		goCircFile, goHostPort, goSid, goUi, goCc, goCnum, goOrder,
 	)
 	if err != nil {
-		log.Printf("c_garbler_fn error: %v", err)
+		log.Printf("c_garbler_fn error: %+v", err)
 		return -1
 	}
 
