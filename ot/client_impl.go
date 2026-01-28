@@ -1,4 +1,4 @@
-package messenger
+package ot
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/taiyi-research-institute/svarog-messenger/pb"
+	"github.com/markkurossi/mpc/pb"
 	"golang.org/x/crypto/blake2b"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -59,7 +59,7 @@ func (cl *MessengerClient) stub() pb.MpcSessionManagerClient {
 
 func (cl *MessengerClient) GrpcNewSession(
 	cfg_req *pb.SessionConfig,
-) (*pb.SessionConfig, error) {
+) (string, error) {
 	// ceremony
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -67,10 +67,10 @@ func (cl *MessengerClient) GrpcNewSession(
 
 	cfg_resp, err := stub.NewSession(ctx, cfg_req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	cl.SessionId = cfg_resp.SessionId
-	return cfg_resp, nil
+	cl.SessionId = cfg_resp.Value
+	return cfg_resp.Value, nil
 }
 
 func (cl *MessengerClient) GrpcNewSessionEasy() (string, error) {
@@ -83,8 +83,8 @@ func (cl *MessengerClient) GrpcNewSessionEasy() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cl.SessionId = resp.SessionId
-	return resp.SessionId, nil
+	cl.SessionId = resp.Value
+	return resp.Value, nil
 }
 
 func (cl *MessengerClient) GrpcGetSessionConfig(
@@ -103,78 +103,6 @@ func (cl *MessengerClient) GrpcGetSessionConfig(
 	return cfg, nil
 }
 
-func (cl *MessengerClient) RegisterSend(obj any, sid string, topic string, src int, dst int, seq int) *MessengerClient {
-	buf0 := new(bytes.Buffer)
-	err := gob.NewEncoder(buf0).Encode(obj)
-	if err != nil {
-		panic(err)
-	}
-	key, buf := PrimaryKey(sid, topic, src, dst, seq), buf0.Bytes()
-	cl.tx = append(cl.tx, &pb.Message{Key: key, Obj: buf})
-	return cl
-}
-
-func (cl *MessengerClient) RegisterRecv(out any, sid string, topic string, src int, dst int, seq int) *MessengerClient {
-	key := PrimaryKey(sid, topic, src, dst, seq)
-	cl.rx[key] = out
-	return cl
-}
-
-func (cl *MessengerClient) Exchange(snd_secs uint, rcv_secs uint) error {
-	if snd_secs == 0 {
-		snd_secs = 60
-	}
-	if rcv_secs == 0 {
-		rcv_secs = 60
-	}
-	ctx, cancel := context.WithTimeout(
-		context.Background(),
-		time.Duration(snd_secs)*time.Second,
-	)
-	defer cancel()
-	stub := cl.stub()
-
-	_, err := stub.Inbox(ctx, &pb.VecMessage{Values: cl.tx})
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel2 := context.WithTimeout(
-		context.Background(),
-		time.Duration(rcv_secs)*time.Second,
-	)
-	defer cancel2()
-
-	req := &pb.VecMessage{Values: make([]*pb.Message, 0)}
-	for k := range cl.rx {
-		req.Values = append(req.Values, &pb.Message{Key: k, Obj: nil})
-	}
-
-	resp, err := stub.Outbox(ctx, req)
-	if err != nil {
-		return err
-	}
-
-	for _, msg := range resp.Values {
-		ptr, ok := cl.rx[msg.Key]
-		if !ok {
-			err = errors.Newf("received a message with primary key %v which is not registered", msg.Key)
-			return err
-		}
-
-		buf := bytes.NewBuffer(msg.Obj)
-		err := gob.NewDecoder(buf).Decode(ptr)
-
-		if err != nil {
-			err = errors.Wrapf(err, "MpcExchange failed to deserialize msg.obj")
-			return err
-		}
-	}
-
-	cl.MpcClear()
-	return nil
-}
-
 func (cl *MessengerClient) DirectSend(
 	obj any,
 	sid string,
@@ -187,26 +115,28 @@ func (cl *MessengerClient) DirectSend(
 	defer cancel()
 	stub := cl.stub()
 
-	key := PrimaryKey(sid, topic, src, dst, seq)
 	buf0 := new(bytes.Buffer)
 	err := gob.NewEncoder(buf0).Encode(obj)
 	if err != nil {
-		err = errors.Wrapf(err, "« DirectSend » failed to serialize object: "+
+		err = errors.Wrapf(err, "[DirectSend] failed to serialize object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
 		return err
 	}
-	req0 := &pb.Message{Key: key, Obj: buf0.Bytes()}
+	req0 := &pb.Message{
+		Sid: sid, Topic: topic, Src: uint64(src), Dst: uint64(dst), Seq: uint64(seq),
+		Val: buf0.Bytes(),
+	}
 	req := &pb.VecMessage{Values: []*pb.Message{req0}}
 
 	if _, err = stub.Inbox(ctx, req); err != nil {
-		err = errors.Wrapf(err, "« DirectSend » failed to post object: "+
+		err = errors.Wrapf(err, "[ DirectSend ] failed to post object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
 		return err
 	}
 
 	log.Printf(
-		"finish DirectSend. sid=«%s», topic=«%s», src=%d, dst=%d, seq=%d, size=%dbytes.",
-		sid, topic, src, dst, seq, len(req0.Obj),
+		"finish DirectSend. sid=[%s], topic=[%s], src=%d, dst=%d, seq=%d, size=%dbytes.",
+		sid, topic, src, dst, seq, len(req0.Val),
 	)
 	return nil
 }
@@ -223,33 +153,36 @@ func (cl *MessengerClient) DirectRecv(
 	defer cancel()
 	stub := cl.stub()
 
-	key := PrimaryKey(sid, topic, src, dst, seq)
-	req0 := &pb.Message{Key: key, Obj: nil}
+	req0 := &pb.Message{
+		Sid: sid, Topic: topic, Src: uint64(src), Dst: uint64(dst), Seq: uint64(seq),
+		Val: nil,
+	}
 	req := &pb.VecMessage{Values: []*pb.Message{req0}}
 
 	resp0, err := stub.Outbox(ctx, req)
 	if err != nil {
-		err = errors.Wrapf(err, "« DirectRecv » failed to post object: "+
+		err = errors.Wrapf(err, "[ DirectRecv ] failed to post object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
 		return err
 	}
 	if len(resp0.Values) != 1 {
-		err = errors.Wrapf(err, "« DirectRecv » received bad response: "+
+		err = errors.Wrapf(err, "[ DirectRecv ] received bad response: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
 		return err
 	}
-	resp := resp0.Values[0].Obj
+	resp := resp0.Values[0].Val
+	nbytes := len(resp)
 
 	buf := bytes.NewBuffer(resp)
 	err = gob.NewDecoder(buf).Decode(out)
 	if err != nil {
-		err = errors.Wrapf(err, "« DirectRecv » failed to deserialize object: "+
+		err = errors.Wrapf(err, "[ DirectRecv ] failed to deserialize object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
 		return err
 	}
 	log.Printf(
-		"finish DirectRecv. sid=«%s», topic=«%s», src=%d, dst=%d, seq=%d, size=%dbytes.",
-		sid, topic, src, dst, seq, len(req0.Obj),
+		"finish DirectRecv. sid=[%s], topic=[%s], src=%d, dst=%d, seq=%d, size=%dbytes.",
+		sid, topic, src, dst, seq, nbytes,
 	)
 
 	return nil

@@ -10,12 +10,11 @@ package ot
 
 import (
 	"github.com/cockroachdb/errors"
-	mgr "github.com/taiyi-research-institute/svarog-messenger/messenger"
 )
 
 // Conn implements a protocol connection.
 type Conn struct {
-	conn *mgr.MessengerClient
+	conn *MessengerClient
 	je   int
 	tu   int
 
@@ -29,7 +28,7 @@ func (c *Conn) SessionId() string {
 
 // NewConn creates a new connection around the argument connection.
 func NewConn(isGarbler bool, hostport, sid string) (*Conn, error) {
-	conn := new(mgr.MessengerClient)
+	conn := new(MessengerClient)
 	conn, err := conn.Connect(hostport)
 	if err != nil {
 		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to connect to grpc server %s:%d", hostport)
@@ -80,26 +79,6 @@ func (c *Conn) Fill(n int) error {
 // Close flushes any pending data and closes the connection.
 func (c *Conn) Close() error {
 	return c.conn.Close()
-}
-
-func (c *Conn) RegisterSend(snd any, topic string) {
-	conn := c.conn
-	c.nsend += 1
-	conn.RegisterSend(snd, conn.SessionId, topic, c.je, c.tu, c.nsend)
-}
-
-func (c *Conn) RegisterRecv(rcv any, topic string) {
-	conn := c.conn
-	c.nrecv += 1
-	conn.RegisterRecv(rcv, conn.SessionId, topic, c.tu, c.je, c.nrecv)
-}
-
-func (c *Conn) Exchange() error {
-	conn := c.conn
-	if err := conn.Exchange(120, 240); err != nil {
-		err = errors.Wrap(err, "in mpc_hd::Conn::Exchange(&self)")
-	}
-	return nil
 }
 
 func (c *Conn) DirectSend(snd any, topic string) error {

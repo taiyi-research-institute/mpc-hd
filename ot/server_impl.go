@@ -1,17 +1,15 @@
-package messenger
+package ot
 
 import (
-	"log"
-	"net"
-
-	"github.com/taiyi-research-institute/svarog-messenger/pb"
-
 	"context"
 	"encoding/hex"
 	"fmt"
+	"log"
+	"net"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/markkurossi/mpc/pb"
 	"github.com/patrickmn/go-cache"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -55,7 +53,7 @@ func NewServer() *MessengerServer {
 func (s *MessengerServer) NewSession(
 	ctx context.Context,
 	cfg *pb.SessionConfig,
-) (*pb.SessionConfig, error) {
+) (*pb.SessionId, error) {
 	// If field `SessionId` is not provided,
 	// then create with UUID-v7, in lowercase hex string --WITHOUT-- hyphens.
 	if cfg.SessionId == "" {
@@ -65,12 +63,12 @@ func (s *MessengerServer) NewSession(
 		cfg.SessionId = sid_str
 	}
 
-	// Store expiration time for further use.
-	cfg.ExpireAtUnixEpoch = time.Now().Add(SESSION_TIMEOUT).Unix()
+	// // Store expiration time for further use.
+	// cfg.ExpireAtUnixEpoch = time.Now().Add(SESSION_TIMEOUT).Unix()
 
 	s.db.Add(cfg.SessionId, cfg, cache.DefaultExpiration)
 
-	return cfg, nil
+	return &pb.SessionId{Value: cfg.SessionId}, nil
 }
 
 func (s *MessengerServer) GetSessionConfig(
@@ -91,11 +89,15 @@ func (s *MessengerServer) Inbox(
 ) (*pb.Void, error) {
 	vec_msg := req.Values
 	for _, msg := range vec_msg {
-		_, found := s.db.Get(msg.Key)
+		key := PrimaryKey(msg.Sid, msg.Topic, msg.Src, msg.Dst, msg.Seq)
+		_, found := s.db.Get(key)
 		if !found {
-			s.db.Add(msg.Key, msg.Obj, cache.DefaultExpiration)
+			s.db.Add(key, msg.Val, cache.DefaultExpiration)
 		} else {
-			err := status.Error(codes.AlreadyExists, fmt.Sprintf("message with key %s already exists", msg.Key))
+			err := status.Error(
+				codes.AlreadyExists,
+				fmt.Sprintf("message key [%s, %s, %d, %d, %d] already exists", msg.Sid, msg.Topic, msg.Src, msg.Dst, msg.Seq),
+			)
 			return nil, err
 		}
 	}
@@ -109,25 +111,24 @@ func (s *MessengerServer) Outbox(
 	vec_req := req.Values
 	vec_resp := &pb.VecMessage{Values: make([]*pb.Message, len(vec_req))}
 	for i, req := range vec_req {
-		obj, found := s.db.Get(req.Key)
+		key := PrimaryKey(req.Sid, req.Topic, req.Src, req.Dst, req.Seq)
+		obj, found := s.db.Get(key)
 		for !found {
 			// #region prevent from running forever
 			ddl, ok := ctx.Deadline()
 			if ok {
 				if time.Now().Compare(ddl) > 0 {
-					err := status.Error(codes.DeadlineExceeded, req.Key)
+					err := status.Error(codes.DeadlineExceeded, key)
 					return nil, err
 				}
 			}
 			// #endregion
 
 			time.Sleep(250 * time.Millisecond)
-			obj, found = s.db.Get(req.Key)
+			obj, found = s.db.Get(key)
 		}
-		vec_resp.Values[i] = &pb.Message{
-			Key: req.Key,
-			Obj: obj.([]byte),
-		}
+		req.Val = obj.([]byte)
+		vec_resp.Values[i] = req
 	}
 	return vec_resp, nil
 }
@@ -135,8 +136,8 @@ func (s *MessengerServer) Outbox(
 func (s *MessengerServer) Ping(
 	ctx context.Context,
 	req *pb.Void,
-) (*pb.PingResponse, error) {
-	msg := &pb.PingResponse{
+) (*pb.EchoMessage, error) {
+	msg := &pb.EchoMessage{
 		Value: "Svarog Session Manager is running.",
 	}
 	return msg, nil

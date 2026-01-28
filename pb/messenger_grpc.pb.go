@@ -17,11 +17,11 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MpcSessionManagerClient interface {
-	NewSession(ctx context.Context, in *SessionConfig, opts ...grpc.CallOption) (*SessionConfig, error)
+	NewSession(ctx context.Context, in *SessionConfig, opts ...grpc.CallOption) (*SessionId, error)
 	GetSessionConfig(ctx context.Context, in *SessionId, opts ...grpc.CallOption) (*SessionConfig, error)
 	Inbox(ctx context.Context, in *VecMessage, opts ...grpc.CallOption) (*Void, error)
 	Outbox(ctx context.Context, in *VecMessage, opts ...grpc.CallOption) (*VecMessage, error)
-	Ping(ctx context.Context, in *Void, opts ...grpc.CallOption) (*PingResponse, error)
+	Ping(ctx context.Context, in *Void, opts ...grpc.CallOption) (*EchoMessage, error)
 }
 
 type mpcSessionManagerClient struct {
@@ -32,9 +32,9 @@ func NewMpcSessionManagerClient(cc grpc.ClientConnInterface) MpcSessionManagerCl
 	return &mpcSessionManagerClient{cc}
 }
 
-func (c *mpcSessionManagerClient) NewSession(ctx context.Context, in *SessionConfig, opts ...grpc.CallOption) (*SessionConfig, error) {
-	out := new(SessionConfig)
-	err := c.cc.Invoke(ctx, "/svarog_messenger.MpcSessionManager/NewSession", in, out, opts...)
+func (c *mpcSessionManagerClient) NewSession(ctx context.Context, in *SessionConfig, opts ...grpc.CallOption) (*SessionId, error) {
+	out := new(SessionId)
+	err := c.cc.Invoke(ctx, "/svarog.MpcSessionManager/NewSession", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (c *mpcSessionManagerClient) NewSession(ctx context.Context, in *SessionCon
 
 func (c *mpcSessionManagerClient) GetSessionConfig(ctx context.Context, in *SessionId, opts ...grpc.CallOption) (*SessionConfig, error) {
 	out := new(SessionConfig)
-	err := c.cc.Invoke(ctx, "/svarog_messenger.MpcSessionManager/GetSessionConfig", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/svarog.MpcSessionManager/GetSessionConfig", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (c *mpcSessionManagerClient) GetSessionConfig(ctx context.Context, in *Sess
 
 func (c *mpcSessionManagerClient) Inbox(ctx context.Context, in *VecMessage, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
-	err := c.cc.Invoke(ctx, "/svarog_messenger.MpcSessionManager/Inbox", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/svarog.MpcSessionManager/Inbox", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -61,16 +61,16 @@ func (c *mpcSessionManagerClient) Inbox(ctx context.Context, in *VecMessage, opt
 
 func (c *mpcSessionManagerClient) Outbox(ctx context.Context, in *VecMessage, opts ...grpc.CallOption) (*VecMessage, error) {
 	out := new(VecMessage)
-	err := c.cc.Invoke(ctx, "/svarog_messenger.MpcSessionManager/Outbox", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/svarog.MpcSessionManager/Outbox", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *mpcSessionManagerClient) Ping(ctx context.Context, in *Void, opts ...grpc.CallOption) (*PingResponse, error) {
-	out := new(PingResponse)
-	err := c.cc.Invoke(ctx, "/svarog_messenger.MpcSessionManager/Ping", in, out, opts...)
+func (c *mpcSessionManagerClient) Ping(ctx context.Context, in *Void, opts ...grpc.CallOption) (*EchoMessage, error) {
+	out := new(EchoMessage)
+	err := c.cc.Invoke(ctx, "/svarog.MpcSessionManager/Ping", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -81,11 +81,11 @@ func (c *mpcSessionManagerClient) Ping(ctx context.Context, in *Void, opts ...gr
 // All implementations must embed UnimplementedMpcSessionManagerServer
 // for forward compatibility
 type MpcSessionManagerServer interface {
-	NewSession(context.Context, *SessionConfig) (*SessionConfig, error)
+	NewSession(context.Context, *SessionConfig) (*SessionId, error)
 	GetSessionConfig(context.Context, *SessionId) (*SessionConfig, error)
 	Inbox(context.Context, *VecMessage) (*Void, error)
 	Outbox(context.Context, *VecMessage) (*VecMessage, error)
-	Ping(context.Context, *Void) (*PingResponse, error)
+	Ping(context.Context, *Void) (*EchoMessage, error)
 	mustEmbedUnimplementedMpcSessionManagerServer()
 }
 
@@ -93,7 +93,7 @@ type MpcSessionManagerServer interface {
 type UnimplementedMpcSessionManagerServer struct {
 }
 
-func (UnimplementedMpcSessionManagerServer) NewSession(context.Context, *SessionConfig) (*SessionConfig, error) {
+func (UnimplementedMpcSessionManagerServer) NewSession(context.Context, *SessionConfig) (*SessionId, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NewSession not implemented")
 }
 func (UnimplementedMpcSessionManagerServer) GetSessionConfig(context.Context, *SessionId) (*SessionConfig, error) {
@@ -105,7 +105,7 @@ func (UnimplementedMpcSessionManagerServer) Inbox(context.Context, *VecMessage) 
 func (UnimplementedMpcSessionManagerServer) Outbox(context.Context, *VecMessage) (*VecMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Outbox not implemented")
 }
-func (UnimplementedMpcSessionManagerServer) Ping(context.Context, *Void) (*PingResponse, error) {
+func (UnimplementedMpcSessionManagerServer) Ping(context.Context, *Void) (*EchoMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Ping not implemented")
 }
 func (UnimplementedMpcSessionManagerServer) mustEmbedUnimplementedMpcSessionManagerServer() {}
@@ -131,7 +131,7 @@ func _MpcSessionManager_NewSession_Handler(srv interface{}, ctx context.Context,
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/svarog_messenger.MpcSessionManager/NewSession",
+		FullMethod: "/svarog.MpcSessionManager/NewSession",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MpcSessionManagerServer).NewSession(ctx, req.(*SessionConfig))
@@ -149,7 +149,7 @@ func _MpcSessionManager_GetSessionConfig_Handler(srv interface{}, ctx context.Co
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/svarog_messenger.MpcSessionManager/GetSessionConfig",
+		FullMethod: "/svarog.MpcSessionManager/GetSessionConfig",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MpcSessionManagerServer).GetSessionConfig(ctx, req.(*SessionId))
@@ -167,7 +167,7 @@ func _MpcSessionManager_Inbox_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/svarog_messenger.MpcSessionManager/Inbox",
+		FullMethod: "/svarog.MpcSessionManager/Inbox",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MpcSessionManagerServer).Inbox(ctx, req.(*VecMessage))
@@ -185,7 +185,7 @@ func _MpcSessionManager_Outbox_Handler(srv interface{}, ctx context.Context, dec
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/svarog_messenger.MpcSessionManager/Outbox",
+		FullMethod: "/svarog.MpcSessionManager/Outbox",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MpcSessionManagerServer).Outbox(ctx, req.(*VecMessage))
@@ -203,7 +203,7 @@ func _MpcSessionManager_Ping_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/svarog_messenger.MpcSessionManager/Ping",
+		FullMethod: "/svarog.MpcSessionManager/Ping",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MpcSessionManagerServer).Ping(ctx, req.(*Void))
@@ -212,7 +212,7 @@ func _MpcSessionManager_Ping_Handler(srv interface{}, ctx context.Context, dec f
 }
 
 var _MpcSessionManager_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "svarog_messenger.MpcSessionManager",
+	ServiceName: "svarog.MpcSessionManager",
 	HandlerType: (*MpcSessionManagerServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -237,5 +237,5 @@ var _MpcSessionManager_serviceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "svarog.proto",
+	Metadata: "messenger.proto",
 }
