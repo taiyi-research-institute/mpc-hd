@@ -343,14 +343,14 @@ func main() {
 	var buf []byte
 	if *evaluator {
 		buf, err = evaluator_fn(
-			cwd+"/../../circ_home/bip32_derive_tweak_ec.mpcl",
+			cwd+"/../../circ_home/bip32_tweak_bigendian.mpcl",
 			"127.0.0.1:65534", "dummy_session_id",
 			args[0], args[1], args[2], args[3],
 		)
 		log.Println("evaluator result:", hex.EncodeToString(buf))
 	} else {
 		buf, err = garbler_fn(
-			cwd+"/../../circ_home/bip32_derive_tweak_ec.mpcl",
+			cwd+"/../../circ_home/bip32_tweak_bigendian.mpcl",
 			"127.0.0.1:65534", "dummy_session_id",
 			args[0], args[1], args[2], args[3],
 		)
