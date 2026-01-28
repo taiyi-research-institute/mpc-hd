@@ -5,33 +5,57 @@ import (
 	"encoding/binary"
 )
 
-func main(g Garbler, e Evaluator) []byte {
-	par_sk := scalar_add(g.wi, e.wi)
+func main(g, e Arguments) []byte {
+	res := make([]byte, 65)
+	if !BufEqual(g.cc[:], e.cc[:]) {
+		res[1] = 0x01
+		return res
+	}
+	if g.idx != e.idx {
+		res[1] = 0x02
+		return res
+	}
+	if g.n != e.n {
+		res[1] = 0x03
+		return res
+	}
 
 	data := make([]byte, 37)
-	idx := g.idx + 0x80000000
+	par_sk := ScalarAdd(g.wi, e.wi, g.n)
 	copy(data[1:33], par_sk)
+
+	idx := g.idx + 0x80000000
 	data = binary.PutUint32(data, 33, idx)
 
-	return hmac.SumSHA512(data, g.cc[:])
+	ha := hmac.SumSHA512(data, g.cc[:])
+	copy(res[1:], ha)
+	res[0] = 1
+
+	return res
 }
 
-const (
-	N uint257 = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
-)
-
-type Garbler struct {
+type Arguments struct {
 	wi uint257
 	cc [32]byte
 	idx uint32
+	n uint257
 }
 
-type Evaluator struct {
-	wi uint257
-}
-
-func scalar_add(a, b uint257) []byte {
+func ScalarAdd(a, b, N uint257) []byte {
 	sk := uint256( (a+b)%N )
 	sk_bytes := binary.PutUint(make([]byte, 32), 0, sk)
 	return sk_bytes
+}
+
+// Equal tests whether a and b are the same length and contain the same bytes.
+func BufEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

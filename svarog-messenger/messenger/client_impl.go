@@ -28,9 +28,9 @@ type MessengerClient struct {
 	SessionId string
 }
 
-func (cl *MessengerClient) Connect(host string, port uint16) (*MessengerClient, error) {
+func (cl *MessengerClient) Connect(hostport string) (*MessengerClient, error) {
 	conn, err := grpc.NewClient(
-		fmt.Sprintf("%s:%d", host, port),
+		fmt.Sprintf("%s", hostport),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(1048576*32),

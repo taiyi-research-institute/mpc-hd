@@ -28,11 +28,11 @@ func (c *Conn) SessionId() string {
 }
 
 // NewConn creates a new connection around the argument connection.
-func NewConn(isGarbler bool, host string, port uint16, sid string) (*Conn, error) {
+func NewConn(isGarbler bool, hostport, sid string) (*Conn, error) {
 	conn := new(mgr.MessengerClient)
-	conn, err := conn.Connect(host, port)
+	conn, err := conn.Connect(hostport)
 	if err != nil {
-		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to connect to grpc server %s:%d", host, port)
+		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to connect to grpc server %s:%d", hostport)
 		return nil, err
 	}
 	if sid == "" {
@@ -41,7 +41,7 @@ func NewConn(isGarbler bool, host string, port uint16, sid string) (*Conn, error
 		conn.SessionId = sid
 	}
 	if err != nil {
-		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to set session_id %s w.r.t. grpc server %s:%d", sid, host, port)
+		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to set session_id %s w.r.t. grpc server %s", sid, hostport)
 		return nil, err
 	}
 
