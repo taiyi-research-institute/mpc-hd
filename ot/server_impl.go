@@ -1,144 +1,187 @@
 package ot
 
 import (
-	"context"
+	"encoding/gob"
 	"encoding/hex"
 	"fmt"
-	"log"
-	"net"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/markkurossi/mpc/pb"
 	"github.com/patrickmn/go-cache"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const SESSION_TIMEOUT = time.Second * 60
 
+// MAX_MESSAGE_SIZE bounds the request body size, mirroring the Rust crate's
+// `MAX_MESSAGE_SIZE` (128 MiB).
+const MAX_MESSAGE_SIZE = 128 * 1024 * 1024
+
+// SpawnServer starts the messenger HTTP server and blocks forever.
+//
+// Routes mirror the Rust axum server:
+//
+//	POST /new_session         body=SessionConfig -> SessionId
+//	POST /get_session_config  body=SessionId     -> SessionConfig (404 if absent)
+//	POST /inbox               body=VecMessage    -> Void
+//	POST /outbox              body=VecMessage    -> VecMessage (long-poll)
+//	GET  /ping                                   -> EchoMessage
 func SpawnServer(host string, port uint16) {
-	hp := fmt.Sprintf("%s:%d", host, port)
-	sock, err := net.Listen("tcp", hp)
-	if err != nil {
-		log.Println("failed to listen to", hp)
+	addr := fmt.Sprintf("%s:%d", host, port)
+	srv := NewServer()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /new_session", srv.handleNewSession)
+	mux.HandleFunc("POST /get_session_config", srv.handleGetSessionConfig)
+	mux.HandleFunc("POST /inbox", srv.handleInbox)
+	mux.HandleFunc("POST /outbox", srv.handleOutbox)
+	mux.HandleFunc("GET /ping", srv.handlePing)
+
+	httpServer := &http.Server{Addr: addr, Handler: mux}
+	if err := httpServer.ListenAndServe(); err != nil {
 		panic(err)
 	}
-
-	grpc_server := grpc.NewServer(
-		grpc.MaxRecvMsgSize(1048576 * 32),
-	)
-	// See `func main()` of the following link to learn how to configure HTTPS.
-	// https://github.com/grpc/grpc-go/blob/master/examples/route_guide/server/server.go
-
-	pb.RegisterMpcSessionManagerServer(grpc_server, NewServer())
-	grpc_server.Serve(sock)
 }
 
 type MessengerServer struct {
-	pb.UnimplementedMpcSessionManagerServer
-	void *pb.Void
-	db   *cache.Cache
-	db2  *cache.Cache
+	db *cache.Cache
 }
 
 func NewServer() *MessengerServer {
 	s := &MessengerServer{}
-	s.void = &pb.Void{}
 	s.db = cache.New(SESSION_TIMEOUT, 180*time.Second)
 	return s
 }
 
-func (s *MessengerServer) NewSession(
-	ctx context.Context,
-	cfg *pb.SessionConfig,
-) (*pb.SessionId, error) {
-	// If field `SessionId` is not provided,
-	// then create with UUID-v7, in lowercase hex string --WITHOUT-- hyphens.
+// wireEncode/wireDecode serialize the HTTP request and response bodies. gob is
+// the Go-native binary analog of the Rust crate's bincode envelope.
+func wireEncode(w io.Writer, v any) error {
+	return gob.NewEncoder(w).Encode(v)
+}
+
+func wireDecode(r io.Reader, v any) error {
+	return gob.NewDecoder(r).Decode(v)
+}
+
+func writeWire(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_ = wireEncode(w, v)
+}
+
+// sessionConfigKey derives the cache key for a session config, matching the
+// Rust convention `primary_key(sid, "session config", 0, 0, 0)`.
+func sessionConfigKey(sid string) string {
+	return PrimaryKey(sid, "session config", 0, 0, 0)
+}
+
+func (s *MessengerServer) handleNewSession(w http.ResponseWriter, r *http.Request) {
+	var cfg SessionConfig
+	if err := wireDecode(http.MaxBytesReader(w, r.Body, MAX_MESSAGE_SIZE), &cfg); err != nil {
+		http.Error(w, fmt.Sprintf("bad request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// If SessionId is not provided, create one with UUID-v7, in lowercase hex
+	// string WITHOUT hyphens.
 	if cfg.SessionId == "" {
 		uuidv7, _ := uuid.NewV7()
-		sid_buf, _ := uuidv7.MarshalBinary()
-		sid_str := hex.EncodeToString(sid_buf) // lowercase hex without hyphen.
-		cfg.SessionId = sid_str
+		buf, _ := uuidv7.MarshalBinary()
+		cfg.SessionId = hex.EncodeToString(buf)
 	}
 
-	// // Store expiration time for further use.
-	// cfg.ExpireAtUnixEpoch = time.Now().Add(SESSION_TIMEOUT).Unix()
+	key := sessionConfigKey(cfg.SessionId)
+	s.db.Set(key, &cfg, cache.DefaultExpiration)
 
-	s.db.Add(cfg.SessionId, cfg, cache.DefaultExpiration)
+	logSessionCreated(&cfg)
 
-	return &pb.SessionId{Value: cfg.SessionId}, nil
+	writeWire(w, &SessionId{Value: cfg.SessionId})
 }
 
-func (s *MessengerServer) GetSessionConfig(
-	ctx context.Context,
-	req *pb.SessionId,
-) (*pb.SessionConfig, error) {
-	obj, session_found := s.db.Get(req.Value)
-	if !session_found {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("Session %s does not exist", req.Value))
+func (s *MessengerServer) handleGetSessionConfig(w http.ResponseWriter, r *http.Request) {
+	var req SessionId
+	if err := wireDecode(http.MaxBytesReader(w, r.Body, MAX_MESSAGE_SIZE), &req); err != nil {
+		http.Error(w, fmt.Sprintf("bad request: %v", err), http.StatusBadRequest)
+		return
 	}
-	cfg, _ := obj.(*pb.SessionConfig)
-	return cfg, nil
+
+	key := sessionConfigKey(req.Value)
+	obj, found := s.db.Get(key)
+	if !found {
+		http.Error(w, fmt.Sprintf("Session does not exist: %s", req.Value), http.StatusNotFound)
+		return
+	}
+	cfg := obj.(*SessionConfig)
+
+	if !cfg.Logged {
+		// Persist the one-time-logging marker, but keep it out of the value
+		// returned to the client (`Logged` is purely server-side bookkeeping).
+		stored := *cfg
+		stored.Logged = true
+		s.db.Set(key, &stored, cache.DefaultExpiration)
+		logSessionUsed(cfg)
+	}
+
+	writeWire(w, cfg)
 }
 
-func (s *MessengerServer) Inbox(
-	ctx context.Context,
-	req *pb.VecMessage,
-) (*pb.Void, error) {
-	vec_msg := req.Values
-	for _, msg := range vec_msg {
+func (s *MessengerServer) handleInbox(w http.ResponseWriter, r *http.Request) {
+	var vec VecMessage
+	if err := wireDecode(http.MaxBytesReader(w, r.Body, MAX_MESSAGE_SIZE), &vec); err != nil {
+		http.Error(w, fmt.Sprintf("bad request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, msg := range vec.Values {
+		if msg.Val == nil {
+			http.Error(w, "inbox refuses val==nil", http.StatusBadRequest)
+			return
+		}
 		key := PrimaryKey(msg.Sid, msg.Topic, msg.Src, msg.Dst, msg.Seq)
-		_, found := s.db.Get(key)
-		if !found {
-			s.db.Add(key, msg.Val, cache.DefaultExpiration)
-		} else {
-			err := status.Error(
-				codes.AlreadyExists,
-				fmt.Sprintf("message key [%s, %s, %d, %d, %d] already exists", msg.Sid, msg.Topic, msg.Src, msg.Dst, msg.Seq),
-			)
-			return nil, err
-		}
+		s.db.Set(key, msg.Val, cache.DefaultExpiration)
 	}
-	return s.void, nil
+
+	writeWire(w, &Void{})
 }
 
-func (s *MessengerServer) Outbox(
-	ctx context.Context,
-	req *pb.VecMessage,
-) (*pb.VecMessage, error) {
-	vec_req := req.Values
-	vec_resp := &pb.VecMessage{Values: make([]*pb.Message, len(vec_req))}
-	for i, req := range vec_req {
-		key := PrimaryKey(req.Sid, req.Topic, req.Src, req.Dst, req.Seq)
-		obj, found := s.db.Get(key)
-		for !found {
-			// #region prevent from running forever
-			ddl, ok := ctx.Deadline()
-			if ok {
-				if time.Now().Compare(ddl) > 0 {
-					err := status.Error(codes.DeadlineExceeded, key)
-					return nil, err
-				}
+func (s *MessengerServer) handleOutbox(w http.ResponseWriter, r *http.Request) {
+	var vec VecMessage
+	if err := wireDecode(http.MaxBytesReader(w, r.Body, MAX_MESSAGE_SIZE), &vec); err != nil {
+		http.Error(w, fmt.Sprintf("bad request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	resp := &VecMessage{Values: make([]*Message, len(vec.Values))}
+	for i, idx := range vec.Values {
+		key := PrimaryKey(idx.Sid, idx.Topic, idx.Src, idx.Dst, idx.Seq)
+		var val []byte
+		for {
+			if obj, found := s.db.Get(key); found {
+				val = obj.([]byte)
+				break
 			}
-			// #endregion
-
-			time.Sleep(250 * time.Millisecond)
-			obj, found = s.db.Get(key)
+			// Long-poll: wait for the value to arrive, aborting if the client
+			// disconnects.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
 		}
-		req.Val = obj.([]byte)
-		vec_resp.Values[i] = req
+		resp.Values[i] = &Message{
+			Sid:   idx.Sid,
+			Topic: idx.Topic,
+			Src:   idx.Src,
+			Dst:   idx.Dst,
+			Seq:   idx.Seq,
+			Val:   val,
+		}
 	}
-	return vec_resp, nil
+
+	writeWire(w, resp)
 }
 
-func (s *MessengerServer) Ping(
-	ctx context.Context,
-	req *pb.Void,
-) (*pb.EchoMessage, error) {
-	msg := &pb.EchoMessage{
-		Value: "Svarog Session Manager is running.",
-	}
-	return msg, nil
+func (s *MessengerServer) handlePing(w http.ResponseWriter, r *http.Request) {
+	writeWire(w, &EchoMessage{Value: "Svarog Messenger server is running."})
 }

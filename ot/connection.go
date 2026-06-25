@@ -31,16 +31,16 @@ func NewConn(isGarbler bool, hostport, sid string) (*Conn, error) {
 	conn := new(MessengerClient)
 	conn, err := conn.Connect(hostport)
 	if err != nil {
-		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to connect to grpc server %s:%d", hostport)
+		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to connect to messenger server %s", hostport)
 		return nil, err
 	}
 	if sid == "" {
-		sid, err = conn.GrpcNewSessionEasy()
+		sid, err = conn.NewSessionEasy()
 	} else {
 		conn.SessionId = sid
 	}
 	if err != nil {
-		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to set session_id %s w.r.t. grpc server %s", sid, hostport)
+		err = errors.Wrapf(err, "mpc-hd/NewConn : failed to set session_id %s w.r.t. messenger server %s", sid, hostport)
 		return nil, err
 	}
 

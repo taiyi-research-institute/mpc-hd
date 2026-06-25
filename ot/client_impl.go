@@ -2,19 +2,18 @@ package ot
 
 import (
 	"bytes"
-	"context"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/hex"
-	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/markkurossi/mpc/pb"
 	"golang.org/x/crypto/blake2b"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -22,86 +21,127 @@ const (
 )
 
 type MessengerClient struct {
-	tx   []*pb.Message
-	rx   map[string]any
-	conn *grpc.ClientConn
+	tx      []*Message
+	rx      map[string]any
+	http    *http.Client
+	baseURL string
 
 	SessionId string
 }
 
+// Connect builds an HTTP client targeting the messenger server and waits until
+// the server is reachable (mirrors the Rust client's connect-with-retries).
+//
+// `hostport` may be a bare "host:port" or a full "http(s)://host:port" URL.
 func (cl *MessengerClient) Connect(hostport string) (*MessengerClient, error) {
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("%s", hostport),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1048576*32),
-		),
-	)
-	if err != nil {
-		return nil, err
+	base := hostport
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
 	}
+	base = strings.TrimRight(base, "/")
+
+	httpClient := &http.Client{}
+
+	// Wait for the server to become reachable.
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		resp, err := httpClient.Get(base + "/ping")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			_ = resp.Body.Close()
+			lastErr = nil
+			break
+		}
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		lastErr = err
+		time.Sleep(500 * time.Millisecond)
+	}
+	if lastErr != nil {
+		return nil, errors.Wrapf(lastErr, "[MessengerClient] failed to connect to server: %s", base)
+	}
+
 	if cl != nil {
 		*cl = MessengerClient{
-			tx:   make([]*pb.Message, 0),
-			rx:   make(map[string]any),
-			conn: conn,
+			tx:      make([]*Message, 0),
+			rx:      make(map[string]any),
+			http:    httpClient,
+			baseURL: base,
 		}
 	}
 	return cl, nil
 }
 
 func (cl *MessengerClient) Close() error {
-	return cl.conn.Close()
+	cl.http.CloseIdleConnections()
+	return nil
 }
 
-func (cl *MessengerClient) stub() pb.MpcSessionManagerClient {
-	return pb.NewMpcSessionManagerClient(cl.conn)
-}
+// rpc POSTs a gob-encoded request body to `path` and decodes the gob response
+// into `respOut` (which may be nil). It returns an error on non-200 status.
+func (cl *MessengerClient) rpc(path string, reqBody any, respOut any) error {
+	var buf bytes.Buffer
+	if reqBody != nil {
+		if err := gob.NewEncoder(&buf).Encode(reqBody); err != nil {
+			return errors.Wrapf(err, "[MessengerClient] failed to encode request to %s", path)
+		}
+	}
 
-func (cl *MessengerClient) GrpcNewSession(
-	cfg_req *pb.SessionConfig,
-) (string, error) {
-	// ceremony
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	stub := cl.stub()
-
-	cfg_resp, err := stub.NewSession(ctx, cfg_req)
+	resp, err := cl.http.Post(cl.baseURL+path, "application/octet-stream", &buf)
 	if err != nil {
+		return errors.Wrapf(err, "[MessengerClient] request to %s failed", path)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return errors.Newf("[MessengerClient] %s returned %d: %s", path, resp.StatusCode, string(body))
+	}
+
+	if respOut != nil {
+		if err := gob.NewDecoder(resp.Body).Decode(respOut); err != nil {
+			return errors.Wrapf(err, "[MessengerClient] failed to decode response from %s", path)
+		}
+	}
+	return nil
+}
+
+func (cl *MessengerClient) NewSession(cfgReq *SessionConfig) (string, error) {
+	var sid SessionId
+	if err := cl.rpc("/new_session", cfgReq, &sid); err != nil {
 		return "", err
 	}
-	cl.SessionId = cfg_resp.Value
-	return cfg_resp.Value, nil
+	cl.SessionId = sid.Value
+	return sid.Value, nil
 }
 
-func (cl *MessengerClient) GrpcNewSessionEasy() (string, error) {
-	// ceremony
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	stub := cl.stub()
-
-	resp, err := stub.NewSession(ctx, &pb.SessionConfig{})
-	if err != nil {
-		return "", err
-	}
-	cl.SessionId = resp.Value
-	return resp.Value, nil
+func (cl *MessengerClient) NewSessionEasy() (string, error) {
+	return cl.NewSession(&SessionConfig{})
 }
 
-func (cl *MessengerClient) GrpcGetSessionConfig(
-	session_id string,
-) (*pb.SessionConfig, error) {
-	// ceremony
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	stub := cl.stub()
-
-	cfg, err := stub.GetSessionConfig(ctx, &pb.SessionId{Value: session_id})
-	if err != nil {
+func (cl *MessengerClient) GetSessionConfig(sessionId string) (*SessionConfig, error) {
+	var cfg SessionConfig
+	if err := cl.rpc("/get_session_config", &SessionId{Value: sessionId}, &cfg); err != nil {
 		return nil, err
 	}
 	cl.SessionId = cfg.SessionId
-	return cfg, nil
+	return &cfg, nil
+}
+
+func (cl *MessengerClient) Ping() (string, error) {
+	resp, err := cl.http.Get(cl.baseURL + "/ping")
+	if err != nil {
+		return "", errors.Wrapf(err, "[MessengerClient] failed to ping server")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.Newf("[MessengerClient] ping returned %d", resp.StatusCode)
+	}
+	var echo EchoMessage
+	if err := gob.NewDecoder(resp.Body).Decode(&echo); err != nil {
+		return "", errors.Wrapf(err, "[MessengerClient] failed to decode ping response")
+	}
+	return echo.Value, nil
 }
 
 func (cl *MessengerClient) DirectSend(
@@ -112,33 +152,27 @@ func (cl *MessengerClient) DirectSend(
 	dst int,
 	seq int,
 ) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	stub := cl.stub()
-
 	buf0 := new(bytes.Buffer)
 	err := gob.NewEncoder(buf0).Encode(obj)
 	if err != nil {
-		err = errors.Wrapf(err, "[DirectSend] failed to serialize object: "+
+		return errors.Wrapf(err, "[DirectSend] failed to serialize object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
-		return err
 	}
-	req0 := &pb.Message{
+	msg := &Message{
 		Sid: sid, Topic: topic, Src: uint64(src), Dst: uint64(dst), Seq: uint64(seq),
 		Val: buf0.Bytes(),
 	}
-	req := &pb.VecMessage{Values: []*pb.Message{req0}}
+	req := &VecMessage{Values: []*Message{msg}}
 
-	if _, err = stub.Inbox(ctx, req); err != nil {
-		err = errors.Wrapf(err, "[ DirectSend ] failed to post object: "+
+	if err := cl.rpc("/inbox", req, &Void{}); err != nil {
+		return errors.Wrapf(err, "[ DirectSend ] failed to post object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
-		return err
 	}
 
 	if os.Getenv("GARBLED_VERBOSE") != "" {
 		log.Printf(
 			"finish DirectSend. sid=[%s], topic=[%s], src=%d, dst=%d, seq=%d, size=%dbytes.",
-			sid, topic, src, dst, seq, len(req0.Val),
+			sid, topic, src, dst, seq, len(msg.Val),
 		)
 	}
 	return nil
@@ -152,36 +186,28 @@ func (cl *MessengerClient) DirectRecv(
 	dst int,
 	seq int,
 ) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	stub := cl.stub()
-
-	req0 := &pb.Message{
+	reqMsg := &Message{
 		Sid: sid, Topic: topic, Src: uint64(src), Dst: uint64(dst), Seq: uint64(seq),
 		Val: nil,
 	}
-	req := &pb.VecMessage{Values: []*pb.Message{req0}}
+	req := &VecMessage{Values: []*Message{reqMsg}}
 
-	resp0, err := stub.Outbox(ctx, req)
-	if err != nil {
-		err = errors.Wrapf(err, "[ DirectRecv ] failed to post object: "+
+	var resp VecMessage
+	if err := cl.rpc("/outbox", req, &resp); err != nil {
+		return errors.Wrapf(err, "[ DirectRecv ] failed to fetch object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
-		return err
 	}
-	if len(resp0.Values) != 1 {
-		err = errors.Wrapf(err, "[ DirectRecv ] received bad response: "+
+	if len(resp.Values) != 1 {
+		return errors.Newf("[ DirectRecv ] received bad response: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
-		return err
 	}
-	resp := resp0.Values[0].Val
-	nbytes := len(resp)
+	data := resp.Values[0].Val
+	nbytes := len(data)
 
-	buf := bytes.NewBuffer(resp)
-	err = gob.NewDecoder(buf).Decode(out)
-	if err != nil {
-		err = errors.Wrapf(err, "[ DirectRecv ] failed to deserialize object: "+
+	buf := bytes.NewBuffer(data)
+	if err := gob.NewDecoder(buf).Decode(out); err != nil {
+		return errors.Wrapf(err, "[ DirectRecv ] failed to deserialize object: "+
 			"query = (%s, %s, %d, %d, %d)", sid, topic, src, dst, seq)
-		return err
 	}
 	if os.Getenv("GARBLED_VERBOSE") != "" {
 		log.Printf(
@@ -194,22 +220,23 @@ func (cl *MessengerClient) DirectRecv(
 }
 
 func (cl *MessengerClient) MpcClear() {
-	cl.tx = make([]*pb.Message, 0)
+	cl.tx = make([]*Message, 0)
 	cl.rx = make(map[string]any)
 }
 
-func PrimaryKey(args ...any) string {
-	ha, _ := blake2b.New256(nil)
-	for _, arg := range args {
-		buf := bytes.NewBuffer(nil)
-		err := gob.NewEncoder(buf).Encode(arg)
-		if err != nil {
-			panic(err)
-		}
-		ha.Write(buf.Bytes())
-	}
+// PrimaryKey derives the message cache key, mirroring the Rust crate's
+// `primary_key`: blake2b with 16-byte output over
+// sid || topic || src_le || dst_le || seq_le, hex-encoded.
+func PrimaryKey(sid string, topic string, src uint64, dst uint64, seq uint64) string {
+	ha, _ := blake2b.New(16, nil)
+	ha.Write([]byte(sid))
+	ha.Write([]byte(topic))
+	var b [8]byte
+	binary.LittleEndian.PutUint64(b[:], src)
+	ha.Write(b[:])
+	binary.LittleEndian.PutUint64(b[:], dst)
+	ha.Write(b[:])
+	binary.LittleEndian.PutUint64(b[:], seq)
+	ha.Write(b[:])
 	return hex.EncodeToString(ha.Sum(nil))
 }
-
-// Thanks to
-// https://github.com/grpc/grpc-go/blob/master/examples/route_guide/client/client.go
