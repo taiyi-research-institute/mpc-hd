@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
+	"github.com/fxamacker/cbor/v2"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -82,7 +83,7 @@ func (cl *MessengerClient) Close() error {
 func (cl *MessengerClient) rpc(path string, reqBody any, respOut any) error {
 	var buf bytes.Buffer
 	if reqBody != nil {
-		if err := gob.NewEncoder(&buf).Encode(reqBody); err != nil {
+		if err := cbor.NewEncoder(&buf).Encode(reqBody); err != nil {
 			return errors.Wrapf(err, "[MessengerClient] failed to encode request to %s", path)
 		}
 	}
@@ -99,7 +100,7 @@ func (cl *MessengerClient) rpc(path string, reqBody any, respOut any) error {
 	}
 
 	if respOut != nil {
-		if err := gob.NewDecoder(resp.Body).Decode(respOut); err != nil {
+		if err := cbor.NewDecoder(resp.Body).Decode(respOut); err != nil {
 			return errors.Wrapf(err, "[MessengerClient] failed to decode response from %s", path)
 		}
 	}
@@ -138,7 +139,7 @@ func (cl *MessengerClient) Ping() (string, error) {
 		return "", errors.Newf("[MessengerClient] ping returned %d", resp.StatusCode)
 	}
 	var echo EchoMessage
-	if err := gob.NewDecoder(resp.Body).Decode(&echo); err != nil {
+	if err := cbor.NewDecoder(resp.Body).Decode(&echo); err != nil {
 		return "", errors.Wrapf(err, "[MessengerClient] failed to decode ping response")
 	}
 	return echo.Value, nil

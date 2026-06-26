@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/cockroachdb/errors v1.12.0
+	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/google/uuid v1.6.0
 	github.com/markkurossi/tabulate v0.0.0-20251126123558-a08056f6160f
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -20,6 +21,7 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 )

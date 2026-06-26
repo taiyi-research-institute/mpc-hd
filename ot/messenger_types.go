@@ -2,39 +2,41 @@ package ot
 
 // Message and session types shared between the messenger client and server.
 //
-// Plain Go structs serialized over the HTTP transport (gob envelope). This
-// mirrors the Rust `svarog-messenger` crate, which uses plain serde structs
-// over an axum/HTTP transport (bincode envelope) after dropping protobuf/gRPC.
+// Plain Go structs serialized over the HTTP transport with CBOR
+// (`fxamacker/cbor`). The Rust `svarog-messenger` crate encodes the same shapes
+// with `ciborium`, so the `cbor` tags below use the Rust crate's (lower-case)
+// field names and `Val` maps to a CBOR byte string, matching Rust's
+// `#[serde(with = "serde_bytes")] val`.
 
 type SessionConfig struct {
-	Operation       string
-	SesmanUrl       string
-	SessionId       string
-	Threshold       uint64
-	Players         map[string]bool
-	PlayersReshared map[string]bool
-	Logged          bool
+	Operation       string          `cbor:"operation"`
+	SesmanUrl       string          `cbor:"sesman_url"`
+	SessionId       string          `cbor:"session_id"`
+	Threshold       uint64          `cbor:"threshold"`
+	Players         map[string]bool `cbor:"players"`
+	PlayersReshared map[string]bool `cbor:"players_reshared"`
+	Logged          bool            `cbor:"logged"`
 }
 
 type SessionId struct {
-	Value string
+	Value string `cbor:"value"`
 }
 
 type Message struct {
-	Sid   string
-	Topic string
-	Src   uint64
-	Dst   uint64
-	Seq   uint64
-	Val   []byte
+	Sid   string `cbor:"sid"`
+	Topic string `cbor:"topic"`
+	Src   uint64 `cbor:"src"`
+	Dst   uint64 `cbor:"dst"`
+	Seq   uint64 `cbor:"seq"`
+	Val   []byte `cbor:"val"`
 }
 
 type VecMessage struct {
-	Values []*Message
+	Values []*Message `cbor:"values"`
 }
 
 type EchoMessage struct {
-	Value string
+	Value string `cbor:"value"`
 }
 
 type Void struct{}

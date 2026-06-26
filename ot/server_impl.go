@@ -1,13 +1,13 @@
 package ot
 
 import (
-	"encoding/gob"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
 )
@@ -54,14 +54,15 @@ func NewServer() *MessengerServer {
 	return s
 }
 
-// wireEncode/wireDecode serialize the HTTP request and response bodies. gob is
-// the Go-native binary analog of the Rust crate's bincode envelope.
+// wireEncode/wireDecode serialize the HTTP request and response bodies with
+// CBOR, matching the Rust crate's ciborium envelope so the Go garbled client
+// and the Rust messenger server interoperate.
 func wireEncode(w io.Writer, v any) error {
-	return gob.NewEncoder(w).Encode(v)
+	return cbor.NewEncoder(w).Encode(v)
 }
 
 func wireDecode(r io.Reader, v any) error {
-	return gob.NewDecoder(r).Decode(v)
+	return cbor.NewDecoder(r).Decode(v)
 }
 
 func writeWire(w http.ResponseWriter, v any) {
